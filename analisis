@@ -1,0 +1,121 @@
+"""
+analisis.py  —  TFG Stop-and-Go  (modelo matemático simple)
+============================================================
+Lee resultados_master.csv y produce:
+    1. Scatter plots (t_dissolve vs cada parámetro)
+    2. Regresión lineal múltiple (ecuación + R²)
+    3. Importancia de cada parámetro (coeficientes normalizados)
+
+Uso:
+    python analisis.py
+"""
+
+import csv, math
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import r2_score
+
+# ── Cargar datos ──────────────────────────────────────────────
+rows = list(csv.DictReader(open("resultados_master.csv")))
+ok   = [r for r in rows if r["t_dissolve"] != "NaN"]   # solo los que se disiparon
+
+print(f"Total experimentos: {len(rows)}  |  Usables (no perpetuos): {len(ok)}")
+
+FEATURES = ["v_crucero", "t_frenada", "num_cars", "t_reaccion", "a_brake"]
+LABELS   = ["Vel. crucero (m/s)", "Dur. frenada (s)", "Nº coches",
+            "T. reacción (s)", "Acel. frenada (m/s²)"]
+
+X = np.array([[float(r[f]) for f in FEATURES] for r in ok])
+y = np.array([float(r["t_dissolve"]) for r in ok])
+
+# ────────────────────────────────────────────────────────────
+#  1. SCATTER: t_dissolve vs cada parámetro por separado
+# ────────────────────────────────────────────────────────────
+fig, axes = plt.subplots(1, 5, figsize=(18, 4))
+for i, (feat, label) in enumerate(zip(FEATURES, LABELS)):
+    xi = X[:, i]
+    axes[i].scatter(xi, y, alpha=0.6, color="#2196F3", edgecolors="white", s=40)
+    m, b = np.polyfit(xi, y, 1)                          # línea de tendencia
+    xs = np.linspace(xi.min(), xi.max(), 100)
+    axes[i].plot(xs, m * xs + b, "r--", lw=1.5)
+    axes[i].set_xlabel(label, fontsize=9)
+    if i == 0:
+        axes[i].set_ylabel("T_dissolve (s)")
+    axes[i].set_title(feat, fontsize=9)
+
+fig.suptitle("T_dissolve vs cada parámetro  (línea roja = tendencia lineal)", fontsize=11)
+plt.tight_layout()
+plt.savefig("scatter_individual.png", dpi=150)
+plt.close()
+print("→  scatter_individual.png")
+
+# ────────────────────────────────────────────────────────────
+#  2. REGRESIÓN LINEAL MÚLTIPLE
+#     Modelo:  T_dissolve = β0 + β1·v + β2·tf + β3·N + β4·Tr + β5·ab
+# ────────────────────────────────────────────────────────────
+model = LinearRegression()
+model.fit(X, y)
+y_pred = model.predict(X)
+
+r2   = r2_score(y, y_pred)
+rmse = math.sqrt(sum((a - b) ** 2 for a, b in zip(y, y_pred)) / len(y))
+
+print("\n=== MODELO LINEAL MÚLTIPLE ===")
+print(f"  R²   = {r2:.4f}   (1.0 = ajuste perfecto)")
+print(f"  RMSE = {rmse:.2f} s  (error medio de predicción)")
+print(f"\n  Intercepto  β₀ = {model.intercept_:.2f}")
+for feat, coef in zip(FEATURES, model.coef_):
+    print(f"  {feat:<15} β  = {coef:+.4f}")
+
+print("\n  ECUACIÓN FINAL:")
+terms = "  +  ".join(f"({c:+.3f})·{f}" for f, c in zip(FEATURES, model.coef_))
+print(f"  T_dissolve  ≈  {model.intercept_:.2f}  +  {terms}")
+
+# Plot: real vs predicho
+fig, ax = plt.subplots(figsize=(5, 5))
+ax.scatter(y, y_pred, alpha=0.7, color="#2196F3", edgecolors="white", s=50)
+lim = [y.min() - 10, y.max() + 10]
+ax.plot(lim, lim, "r--", lw=1.5, label="Predicción perfecta")
+ax.set_xlabel("T_dissolve real (s)")
+ax.set_ylabel("T_dissolve predicho (s)")
+ax.set_title(f"Modelo lineal\nR² = {r2:.3f}   RMSE = {rmse:.1f} s")
+ax.legend()
+plt.tight_layout()
+plt.savefig("real_vs_predicho.png", dpi=150)
+plt.close()
+print("→  real_vs_predicho.png")
+
+# ────────────────────────────────────────────────────────────
+#  3. IMPORTANCIA: coeficientes normalizados
+#     Normalizamos X para que los β sean comparables entre sí
+# ────────────────────────────────────────────────────────────
+sc  = StandardScaler()
+Xn  = sc.fit_transform(X)
+mn  = LinearRegression().fit(Xn, y)
+
+coefs_norm   = list(zip(FEATURES, mn.coef_))
+coefs_sorted = sorted(coefs_norm, key=lambda x: abs(x[1]), reverse=True)
+
+print("\n=== IMPORTANCIA DE CADA PARÁMETRO (coeficientes normalizados) ===")
+max_abs = max(abs(c) for _, c in coefs_sorted)
+for feat, coef in coefs_sorted:
+    bar       = "█" * int(abs(coef) / max_abs * 20)
+    direction = "empeora el atasco" if coef > 0 else "mejora (reduce tiempo)"
+    print(f"  {feat:<15} {coef:+.1f}  {bar}  ({direction})")
+
+# Plot: barras de importancia
+fig, ax = plt.subplots(figsize=(7, 4))
+feats  = [f for f, _ in coefs_sorted]
+vals   = [c for _, c in coefs_sorted]
+colors = ["#e74c3c" if v > 0 else "#2ecc71" for v in vals]
+ax.barh(feats, vals, color=colors, edgecolor="white")
+ax.axvline(0, color="black", lw=0.8)
+ax.set_xlabel("Coeficiente normalizado")
+ax.set_title("Influencia de cada parámetro sobre T_dissolve\n"
+             "(rojo = empeora el atasco   verde = lo mejora)")
+plt.tight_layout()
+plt.savefig("importancia.png", dpi=150)
+plt.close()
+print("→  importancia.png")
