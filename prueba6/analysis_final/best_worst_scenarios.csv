@@ -1,0 +1,16 @@
+Category,Scenario,Value
+=== HOMOGENEOUS: BEST ===,,
+Fastest Dissolution,Homo_N20_V20,32.0s
+Lowest Max Stopped,Homo_N20_V20,1 vehicles
+,,
+=== HOMOGENEOUS: WORST ===,,
+Slowest Dissolution,Homo_N27_V35,296.0s
+Highest Max Stopped,Homo_N20_V20,1 vehicles
+,,
+=== HETEROGENEOUS: BEST ===,,
+Fastest Dissolution,Het_T00_A025,117.0s
+Lowest Max Stopped,Het_T00_A000,1 vehicles
+,,
+=== HETEROGENEOUS: WORST ===,,
+Slowest Dissolution,Het_T00_A100,210.0s
+Highest Max Stopped,Het_T75_A000,20 vehicles

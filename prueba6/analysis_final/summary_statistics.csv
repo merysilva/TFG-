@@ -1,0 +1,23 @@
+Metric,Value
+=== HOMOGENEOUS TRAFFIC ===,
+Total Scenarios,20
+Mean Dissolution Time (s),142.65
+Median Dissolution Time (s),119.00
+Std Dev (s),86.25
+Min Dissolution Time (s),32.00
+Max Dissolution Time (s),296.00
+Perpetual Jams,0
+,
+=== HETEROGENEOUS TRAFFIC ===,
+Total Scenarios,30
+Mean Dissolution Time (s),162.60
+Median Dissolution Time (s),160.00
+Std Dev (s),33.66
+Min Dissolution Time (s),117.00
+Max Dissolution Time (s),210.00
+Perpetual Jams,0
+,
+=== STATISTICAL TEST ===,
+T-statistic,-0.4990
+P-value,0.623229
+Significant Difference,No (p >= 0.05)
