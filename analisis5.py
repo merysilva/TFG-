@@ -32,36 +32,18 @@ plt.rcParams['font.size'] = 10
 OUTPUT_DIR = "analysis_results_v2"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-"""
-def load_master_data():
-    try:
-        df = pd.read_csv("resultados_heterogeneo_v2_master.csv")
-        print(f"✅ Loaded master data: {len(df)} scenarios")
-        return df
-    except FileNotFoundError:
-        print("❌ Error: resultados_heterogeneo_v2_master.csv not found")
-        print("   Run simulador_heterogeneo_v2.py first!")
-        return None"""
-
 
 def load_master_data():
     """Load the master summary file."""
     try:
         df = pd.read_csv("resultados_heterogeneo_v2_master.csv")
         print(f"✅ Loaded master data: {len(df)} scenarios")
-        
-        # --- GLOBAL DATA CLEANING FIX ---
-        # Fix Spanish commas in metric columns so Python can read them as numbers
-        for col in ['t_dissolve', 'wave_speed']:
-            if col in df.columns and df[col].dtype == 'object':
-                df[col] = df[col].astype(str).str.replace(',', '.')
-        # --------------------------------
-                
         return df
     except FileNotFoundError:
         print("❌ Error: resultados_heterogeneo_v2_master.csv not found")
         print("   Run simulador_heterogeneo_v2.py first!")
         return None
+
 
 def load_scenario_data(scenario_name):
     """Load time-series data for a specific scenario."""
@@ -77,39 +59,6 @@ def load_scenario_data(scenario_name):
 # ═══════════════════════════════════════════════════════════════════
 #  MASTER DATA HEATMAPS
 # ═══════════════════════════════════════════════════════════════════
-"""""
-def create_heatmap(df, value_col, title, filename, cmap='RdYlGn_r', fmt='.1f'):
-    print(f"Generating: {title}...")
-    
-    # Convert to numeric if needed
-    if df[value_col].dtype == 'object':
-        df[f'{value_col}_numeric'] = pd.to_numeric(df[value_col], errors='coerce')
-        value_col = f'{value_col}_numeric'
-    
-    pivot = df.pivot_table(
-        values=value_col,
-        index='truck_pct',
-        columns='aggressive_pct',
-        aggfunc='mean'
-    )
-    
-    pivot.index = (pivot.index * 100).astype(int)
-    pivot.columns = (pivot.columns * 100).astype(int)
-    
-    plt.figure(figsize=(12, 8))
-    sns.heatmap(pivot, annot=True, fmt=fmt, cmap=cmap, 
-                cbar_kws={'label': title.split('\n')[0]},
-                linewidths=0.5)
-    plt.xlabel('Aggressive Drivers (%)', fontsize=12)
-    plt.ylabel('Trucks (%)', fontsize=12)
-    plt.title(title, fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(f"{OUTPUT_DIR}/{filename}", dpi=300)
-    plt.close()
-    print(f"  ✅ Saved: {filename}")
-
-"""
-
 
 def create_heatmap(df, value_col, title, filename, cmap='RdYlGn_r', fmt='.1f'):
     """Generic heatmap creator."""
@@ -117,15 +66,16 @@ def create_heatmap(df, value_col, title, filename, cmap='RdYlGn_r', fmt='.1f'):
     
     # Convert to numeric if needed
     if df[value_col].dtype == 'object':
+        # Replace commas with dots if they exist (for European number format)
+        df[value_col] = df[value_col].astype(str).str.replace(',', '.')
         df[f'{value_col}_numeric'] = pd.to_numeric(df[value_col], errors='coerce')
         value_col = f'{value_col}_numeric'
     
-    # --- SAFETY CHECK FIX ---
+    # SAFETY CHECK: Are all values NaN/missing?
     if df[value_col].isna().all():
-        print(f"  ⚠️ SKIP: All values for this metric are missing or perpetual jams. Cannot generate {filename}.")
-        return
-    # ------------------------
-        
+        print(f"  ⚠️  SKIP: All {value_col} values are missing or invalid. Cannot generate heatmap.")
+        return  # Skip this heatmap without crashing
+    
     pivot = df.pivot_table(
         values=value_col,
         index='truck_pct',
@@ -148,9 +98,9 @@ def create_heatmap(df, value_col, title, filename, cmap='RdYlGn_r', fmt='.1f'):
     plt.close()
     print(f"  ✅ Saved: {filename}")
 
-    
+
 def plot_all_heatmaps(df):
-    #Generate all heatmap visualizations.
+    """Generate all heatmap visualizations."""
     heatmaps = [
         ('t_dissolve', 'Traffic Jam Dissolution Time\n(Lower is better)', 
          '01_dissolution_time_heatmap.png', 'RdYlGn_r', '.1f'),
