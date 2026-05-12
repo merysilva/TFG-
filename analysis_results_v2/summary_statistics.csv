@@ -1,0 +1,33 @@
+Metric,Value
+=== DISSOLUTION TIME ===,
+Mean (s),nan
+Median (s),nan
+Std Dev (s),nan
+Min (s),nan
+Max (s),nan
+,
+=== THROUGHPUT ===,
+Mean (vehicles),76.3
+Median (vehicles),74.5
+Std Dev (vehicles),6.6
+Min (vehicles),67
+Max (vehicles),93
+,
+=== WAVE PROPAGATION ===,
+Mean Speed (m/s),nan
+Median Speed (m/s),nan
+Std Dev (m/s),nan
+,
+=== CONGESTION ===,
+Mean Max Stopped,30.00
+Max Max Stopped,30
+,
+=== SAFETY ===,
+Total Near Collisions,0
+Total Hard Brakes,870
+Mean Near Collisions per Scenario,0.0
+Mean Hard Brakes per Scenario,29.0
+,
+=== JAM PERSISTENCE ===,
+Perpetual Jams Count,0
+Perpetual Jam Rate (%),0.0

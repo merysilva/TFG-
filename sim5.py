@@ -23,7 +23,7 @@ from collections import deque
 # ═══════════════════════════════════════════════════════════════════
 #  USER CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════
-ENABLE_VISUAL = True  # Set to False for faster data-only runs
+ENABLE_VISUAL = False  # Set to False for faster data-only runs
 VISUAL_SPEED = 30      # FPS for visualization (higher = faster)
 
 # ═══════════════════════════════════════════════════════════════════
