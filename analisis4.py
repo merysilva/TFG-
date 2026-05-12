@@ -55,8 +55,8 @@ def load_scenario_data(scenario_name):
 #  MASTER DATA VISUALIZATIONS
 # ═══════════════════════════════════════════════════════════════════
 
-def plot_dissolution_time_heatmap(df):
-    """Heatmap: Traffic jam dissolution time by truck % and aggression %."""
+"""def plot_dissolution_time_heatmap(df):
+    #Heatmap: Traffic jam dissolution time by truck % and aggression %.
     print("Generating: Dissolution time heatmap...")
     
     # Convert t_dissolve to numeric (NaN for perpetual jams)
@@ -85,7 +85,46 @@ def plot_dissolution_time_heatmap(df):
     plt.savefig(f"{OUTPUT_DIR}/01_dissolution_time_heatmap.png", dpi=300)
     plt.close()
     print("  ✅ Saved: 01_dissolution_time_heatmap.png")
-
+"""
+def plot_dissolution_time_heatmap(df):
+    """Heatmap: Traffic jam dissolution time by truck % and aggression %."""
+    print("Generating: Dissolution time heatmap...")
+    
+    # 1. Convert to numeric, replacing commas with dots if they exist
+    if df['t_dissolve'].dtype == 'object': # If it's loaded as text
+        df['t_dissolve'] = df['t_dissolve'].astype(str).str.replace(',', '.')
+        
+    df['t_dissolve_numeric'] = pd.to_numeric(df['t_dissolve'], errors='coerce')
+    
+    # 2. SAFETY CHECK: Did everything turn into NaN?
+    if df['t_dissolve_numeric'].isna().all():
+        print("  ⚠️ SKIP: All dissolution times are missing or perpetual jams. Cannot generate heatmap.")
+        return # Skips the rest of the function so the script doesn't crash
+    
+    # Create pivot table
+    pivot = df.pivot_table(
+        values='t_dissolve_numeric',
+        index='truck_pct',
+        columns='aggressive_pct',
+        aggfunc='mean'
+    )
+    
+    # ... (keep the rest of your plotting code exactly the same from here down)
+    # Convert to percentages for labels
+    pivot.index = (pivot.index * 100).astype(int)
+    pivot.columns = (pivot.columns * 100).astype(int)
+    
+    plt.figure(figsize=(12, 8))
+    sns.heatmap(pivot, annot=True, fmt='.1f', cmap='RdYlGn_r', 
+                cbar_kws={'label': 'Dissolution Time (seconds)'},
+                linewidths=0.5)
+    plt.xlabel('Aggressive Drivers (%)', fontsize=12)
+    plt.ylabel('Trucks (%)', fontsize=12)
+    plt.title('Traffic Jam Dissolution Time\n(Lower is better)', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(f"{OUTPUT_DIR}/01_dissolution_time_heatmap.png", dpi=300)
+    plt.close()
+    print("  ✅ Saved: 01_dissolution_time_heatmap.png")
 
 def plot_throughput_heatmap(df):
     """Heatmap: Vehicle throughput by truck % and aggression %."""

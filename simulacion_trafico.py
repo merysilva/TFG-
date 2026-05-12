@@ -6,8 +6,8 @@ import os
 
 # --- CONFIGURACIÓN DE EXPERIMENTOS ---
 ESCENARIOS = [
-    {"nombre": "Exp_V15_F5", "v_crucero": 15.0, "t_frenada": 5.0},
-    {"nombre": "Exp_V20_F5", "v_crucero": 20.0, "t_frenada": 5.0},
+    #{"nombre": "Exp_V15_F5", "v_crucero": 15.0, "t_frenada": 5.0},
+    #{"nombre": "Exp_V20_F5", "v_crucero": 20.0, "t_frenada": 5.0},
     {"nombre": "Exp_V25_F5", "v_crucero": 25.0, "t_frenada": 5.0},
     {"nombre": "Exp_V30_F5", "v_crucero": 30.0, "t_frenada": 5.0},
     {"nombre": "Exp_V15_F10", "v_crucero": 15.0, "t_frenada": 10.0},
@@ -87,7 +87,7 @@ class SimuladorTFG:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT: return "QUIT"
 
-            if self.estado == "ESTABILIZANDO" and self.segundo_actual >= 7:
+            if self.estado == "ESTABILIZANDO" and self.segundo_actual >= 10:
                 self.estado = "FRENANDO"
                 self.timer_frenada = self.duracion_frenada
             
@@ -151,7 +151,7 @@ class SimuladorTFG:
                         self.timer_fin = 5 # Esperar 5 segundos antes de cerrar
                     
                     # 2. Cortafuegos: El atasco es perpetuo y llevamos 5 minutos de simulación
-                    elif self.segundo_actual > 400: 
+                    elif self.segundo_actual > 150: 
                         print(f"[{self.config['nombre']}] 😡 Atasco perpetuo detectado. Abortando por tiempo.")
                         self.estado = "FIN"
                         running = False

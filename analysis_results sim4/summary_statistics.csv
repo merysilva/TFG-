@@ -1,0 +1,18 @@
+Metric,Value
+Mean Dissolution Time (s),nan
+Median Dissolution Time (s),nan
+Std Deviation Dissolution Time,nan
+Min Dissolution Time (s),nan
+Max Dissolution Time (s),nan
+,
+Mean Throughput (vehicles),113.8
+Median Throughput (vehicles),111.0
+Min Throughput (vehicles),95
+Max Throughput (vehicles),138
+,
+Mean Max Stopped Vehicles,38.00
+Max Max Stopped Vehicles,38
+,
+Total Near Collisions,0
+Total Hard Brakes,1500
+Perpetual Jams Count,30
