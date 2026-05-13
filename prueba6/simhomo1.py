@@ -1,16 +1,10 @@
 """
-simulador_homogeneo_densidad_velocidad.py — Homogeneous Traffic Experiments
-============================================================================
-Tests different vehicle densities and cruising speeds with only cars
-(non-aggressive drivers). Uses the working parameters from the tuning tool.
-
-Experiments:
-    - Densities: 20, 25, 27, 30, 35 vehicles
-    - Speeds: 20, 25, 30, 35 m/s
-    - Total: 5 × 4 = 20 scenarios
+simulador_homogeneo_FIXED.py — Actually Fixed Homogeneous Traffic
+==================================================================
+CRITICAL FIX: Don't check for dissolution before disturbance ends!
 
 Usage:
-    python simulador_homogeneo_densidad_velocidad.py
+    python simulador_homogeneo_FIXED.py
 """
 
 import pygame
@@ -18,19 +12,14 @@ import math
 import csv
 import os
 
-# ═══════════════════════════════════════════════════════════════════
-#  USER CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════
-ENABLE_VISUAL = False  # Set to False for faster execution
-VISUAL_SPEED = 30      # FPS when visual is enabled
+# Configuration
+ENABLE_VISUAL = False
+VISUAL_SPEED = 30
 
-# ═══════════════════════════════════════════════════════════════════
-#  EXPERIMENT CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════
-DENSITIES = [20, 25, 27, 30, 35]  # Number of vehicles
-SPEEDS = [20.0, 25.0, 30.0, 35.0]  # Maximum speeds (m/s)
+# Experiment configuration
+DENSITIES = [20, 25, 27, 30, 35]
+SPEEDS = [20.0, 25.0, 30.0, 35.0]
 
-# Generate all scenario combinations
 ESCENARIOS = []
 for density in DENSITIES:
     for speed in SPEEDS:
@@ -40,37 +29,27 @@ for density in DENSITIES:
             "max_speed": speed
         })
 
-# ═══════════════════════════════════════════════════════════════════
-#  PHYSICAL CONSTANTS (From working tuning parameters)
-# ═══════════════════════════════════════════════════════════════════
+# Physical constants (from working tuning)
 TRACK_RADIUS = 400
 TRACK_LENGTH = 2 * math.pi * TRACK_RADIUS
-
-# Vehicle properties (cautious drivers, cars only)
 CAR_LENGTH = 5.0
-CAR_ACC_MAX = 2.5      # From working config
-CAR_DEC_MAX = 4.5      # From working config
+CAR_ACC_MAX = 2.5
+CAR_DEC_MAX = 4.5
+S0 = 2.5
+T_REACTION = 1.0
 
-# IDM parameters (from working config)
-S0 = 2.5               # minimum gap
-T_REACTION = 1.0       # reaction time
-
-# Disturbance parameters (from working config)
+# Disturbance
 DISTURBANCE_START = 10.0
 DISTURBANCE_DURATION = 5.0
 DISTURBANCE_DECEL = -12.0
 
-# Simulation parameters
+# Simulation
 MAX_TIME = 300
 DT = 0.1
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  SIMULATOR CLASS
-# ═══════════════════════════════════════════════════════════════════
 class SimuladorHomogeneo:
     def __init__(self, config, enable_visual=True):
-        """Initialize simulation with configuration."""
         self.enable_visual = enable_visual
         
         if self.enable_visual:
@@ -84,41 +63,38 @@ class SimuladorHomogeneo:
         self.num_cars = config["num_cars"]
         self.max_speed = config["max_speed"]
         
-        # Initial positions (evenly spaced)
+        # Initial state
         spacing = TRACK_LENGTH / self.num_cars
         self.positions = [i * spacing for i in range(self.num_cars)]
         self.velocities = [0.0] * self.num_cars
         self.accelerations = [0.0] * self.num_cars
         
         # Simulation state
-        self.estado = "ESTABILIZANDO"
         self.segundo_actual = 0
         self.frame_count = 0
-        self.timer_frenada = 0
-        self.timer_fin = 0
+        self.disturbance_active = False
+        self.disturbance_end_time = 0
         
         # Metrics
         self.logs = []
         self.max_stopped = 0
         self.t_dissolve = None
         self.jam_perpetuo = False
+        
+        # Tracking for dissolution detection
+        self.stable_counter = 0
+        self.jam_occurred = False  # NEW: Track if a jam actually happened
 
     def calculate_idm_acceleration(self, i):
-        """Calculate IDM acceleration for vehicle i."""
         lead = (i + 1) % self.num_cars
-        
-        # Calculate gap
         raw_gap = (self.positions[lead] - self.positions[i]) % TRACK_LENGTH
         gap = max(0.1, raw_gap - CAR_LENGTH)
         
         v = self.velocities[i]
         dv = v - self.velocities[lead]
         
-        # Free flow term (using v^2 instead of v^4 as in working version)
-        if self.max_speed > 0:
-            v_ratio = v / self.max_speed
-        else:
-            v_ratio = 0
+        # Free flow term (v^2 from working config)
+        v_ratio = v / self.max_speed if self.max_speed > 0 else 0
         free_term = CAR_ACC_MAX * (1.0 - v_ratio ** 2)
         
         # Interaction term
@@ -127,45 +103,32 @@ class SimuladorHomogeneo:
         interaction = CAR_ACC_MAX * (s_desired / gap) ** 2
         
         accel = free_term - interaction
-        
-        # Limit to vehicle capabilities
         accel = max(-CAR_DEC_MAX, min(CAR_ACC_MAX, accel))
         
         return accel
 
     def step_physics(self):
-        """Update all vehicle positions and velocities."""
-        if self.estado == "ESTABILIZANDO":
-            # Gentle acceleration to cruising speed
-            for i in range(self.num_cars):
-                if self.velocities[i] < self.max_speed:
-                    self.accelerations[i] = CAR_ACC_MAX * 0.5
-                else:
-                    self.accelerations[i] = 0.0
-        else:
-            # IDM control
-            for i in range(self.num_cars):
-                self.accelerations[i] = self.calculate_idm_acceleration(i)
+        # Calculate accelerations
+        for i in range(self.num_cars):
+            self.accelerations[i] = self.calculate_idm_acceleration(i)
         
         # Apply disturbance
-        if self.estado == "FRENADA_ORIGEN":
+        if self.disturbance_active:
             self.accelerations[0] = DISTURBANCE_DECEL
         
         # Update velocities and positions
         for i in range(self.num_cars):
             self.velocities[i] += self.accelerations[i] * DT
             
-            # Realistic stop: force dead stop when very slow and braking
+            # Realistic stop
             if self.velocities[i] < 0.5 and self.accelerations[i] < 0:
                 self.velocities[i] = 0.0
-                self.accelerations[i] = 0.0
-                
+            
             self.velocities[i] = max(0.0, min(self.max_speed, self.velocities[i]))
             self.positions[i] += self.velocities[i] * DT
             self.positions[i] %= TRACK_LENGTH
 
     def log_data(self):
-        """Record statistics for this second."""
         avg_velocity = sum(self.velocities) / self.num_cars
         min_velocity = min(self.velocities)
         max_velocity = max(self.velocities)
@@ -180,6 +143,10 @@ class SimuladorHomogeneo:
         if stopped > self.max_stopped:
             self.max_stopped = stopped
         
+        # Track if a jam occurred
+        if stopped > 0 and self.segundo_actual > DISTURBANCE_START:
+            self.jam_occurred = True
+        
         # Calculate gaps
         gaps = []
         for i in range(self.num_cars):
@@ -188,9 +155,19 @@ class SimuladorHomogeneo:
             gap = raw_gap - CAR_LENGTH
             gaps.append(gap)
         
+        # Determine state
+        if self.segundo_actual < DISTURBANCE_START:
+            estado = "WARMING_UP"
+        elif self.disturbance_active:
+            estado = "DISTURBANCE"
+        elif stopped > 0:
+            estado = "JAM_ACTIVE"
+        else:
+            estado = "RECOVERING"
+        
         self.logs.append({
             "segundo": self.segundo_actual,
-            "estado": self.estado,
+            "estado": estado,
             "num_cars": self.num_cars,
             "max_speed": self.max_speed,
             "avg_velocity": round(avg_velocity, 2),
@@ -207,7 +184,6 @@ class SimuladorHomogeneo:
         })
 
     def get_vehicle_color(self, i):
-        """Calculate vehicle color based on acceleration."""
         accel = self.accelerations[i]
         norm_accel = max(-1.0, min(1.0, accel / 3.0))
         
@@ -225,18 +201,15 @@ class SimuladorHomogeneo:
         return (r, g, b)
 
     def draw(self):
-        """Render simulation visualization."""
         if not self.enable_visual:
             return
         
         self.screen.fill((20, 20, 25))
         
-        # Draw track
         center_x, center_y = 600, 475
         pygame.draw.circle(self.screen, (50, 50, 50), (center_x, center_y), 
                           TRACK_RADIUS, 30)
         
-        # Draw vehicles
         for i in range(self.num_cars):
             angle = (self.positions[i] / TRACK_LENGTH) * 2 * math.pi
             x = center_x + TRACK_RADIUS * math.cos(angle)
@@ -250,22 +223,14 @@ class SimuladorHomogeneo:
             
             pygame.draw.circle(self.screen, color, (int(x), int(y)), 8)
         
-        # Statistics panel
-        avg_vel = sum(self.velocities) / self.num_cars
         stopped = sum(1 for v in self.velocities if v < 1.0)
-        v_diff = max(self.velocities) - min(self.velocities)
+        avg_vel = sum(self.velocities) / self.num_cars
         
         info = [
             f"SCENARIO: {self.config['nombre']}",
-            f"Vehicles: {self.num_cars}  Max Speed: {self.max_speed} m/s",
-            "",
-            f"TIME: {self.segundo_actual}s   STATE: {self.estado}",
-            "",
-            "=== FLOW ===",
-            f"Avg velocity:  {avg_vel:.2f} m/s",
-            f"V_diff:        {v_diff:.2f} m/s",
-            f"Stopped:       {stopped}",
-            f"Max stopped:   {self.max_stopped}",
+            f"Time: {self.segundo_actual}s",
+            f"Avg vel: {avg_vel:.2f} m/s",
+            f"Stopped: {stopped} / Max: {self.max_stopped}",
         ]
         
         if self.t_dissolve:
@@ -274,31 +239,24 @@ class SimuladorHomogeneo:
             info.append("❌ PERPETUAL JAM")
         
         for idx, text in enumerate(info):
-            if text == "":
-                continue
             surf = self.font.render(text, True, (220, 220, 220))
-            self.screen.blit(surf, (20, 15 + idx * 18))
+            self.screen.blit(surf, (20, 15 + idx * 20))
         
         pygame.display.flip()
 
     def save_csv(self):
-        """Save time-series data to CSV."""
         os.makedirs("resultados_homogeneo", exist_ok=True)
         filename = f"resultados_homogeneo/{self.config['nombre']}_datos.csv"
         
         if not self.logs:
-            print(f"  ⚠️  No data")
             return
         
         with open(filename, 'w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=self.logs[0].keys())
             writer.writeheader()
             writer.writerows(self.logs)
-        
-        print(f"  ✅  {filename}")
 
     def run(self):
-        """Main simulation loop."""
         running = True
         
         while running and self.segundo_actual < MAX_TIME:
@@ -307,63 +265,52 @@ class SimuladorHomogeneo:
                     if event.type == pygame.QUIT:
                         return "QUIT"
             
-            # Calculate metrics
-            v_min = min(self.velocities)
-            v_max = max(self.velocities)
-            v_diff = v_max - v_min
-            
-            # State transitions (from working version)
-            if self.estado == "ESTABILIZANDO":
-                if v_diff < 1.0 and self.segundo_actual > 5:
-                    self.estado = "FLUJO_SINCRO"
-            
-            if self.estado == "FLUJO_SINCRO" and self.segundo_actual >= DISTURBANCE_START:
-                self.estado = "FRENADA_ORIGEN"
-                self.timer_frenada = DISTURBANCE_DURATION
-            
-            if self.estado == "FRENADA_ORIGEN":
-                self.timer_frenada -= DT
-                if self.timer_frenada <= 0:
-                    self.estado = "ONDA_ACTIVA"
-            
-            if self.estado in ["ONDA_ACTIVA", "DISOLVIENDO"]:
-                if v_min < 1.0 and self.estado == "DISOLVIENDO":
-                    self.estado = "ONDA_ACTIVA"
-                elif v_min >= 1.0 and self.estado == "ONDA_ACTIVA":
-                    self.estado = "DISOLVIENDO"
-                
-                if self.estado == "DISOLVIENDO" and v_diff < 2.0:
-                    if self.t_dissolve is None:
-                        self.estado = "RECUPERADO"
-                        self.t_dissolve = self.segundo_actual
-                        self.timer_fin = 5
-            
-            if self.estado == "RECUPERADO":
-                self.timer_fin -= DT
-                if self.timer_fin <= 0:
-                    running = False
-            
-            # Perpetual jam detection
-            if self.segundo_actual > 200 and self.estado in ["ONDA_ACTIVA", "DISOLVIENDO"]:
-                stopped_cars = sum(1 for v in self.velocities if v < 1.0)
-                if stopped_cars > self.num_cars * 0.2:
-                    self.jam_perpetuo = True
-                    running = False
-            
             # Physics update
             self.step_physics()
             
-            # Data logging
+            # Data logging every second
             self.frame_count += 1
             if self.frame_count >= 10:
                 self.segundo_actual += 1
                 self.log_data()
                 self.frame_count = 0
+                
+                # Disturbance control
+                if self.segundo_actual == DISTURBANCE_START:
+                    self.disturbance_active = True
+                    self.disturbance_end_time = self.segundo_actual + DISTURBANCE_DURATION
+                
+                if self.segundo_actual == self.disturbance_end_time:
+                    self.disturbance_active = False
+                
+                # ONLY check for dissolution AFTER disturbance has ended AND a jam occurred
+                if self.segundo_actual > self.disturbance_end_time and self.jam_occurred:
+                    stopped = sum(1 for v in self.velocities if v < 1.0)
+                    
+                    if stopped == 0:
+                        self.stable_counter += 1
+                    else:
+                        self.stable_counter = 0
+                    
+                    # Jam dissolved: 5 consecutive seconds with no stopped vehicles
+                    if self.stable_counter >= 5 and self.t_dissolve is None:
+                        self.t_dissolve = self.segundo_actual - 5
+                        running = False
+                
+                # Perpetual jam detection (ONLY after disturbance + some recovery time)
+                if self.segundo_actual > DISTURBANCE_START + 180:
+                    stopped = sum(1 for v in self.velocities if v < 1.0)
+                    if stopped > self.num_cars * 0.10:
+                        self.jam_perpetuo = True
+                        running = False
             
-            # Visualization
             if self.enable_visual:
                 self.draw()
                 self.clock.tick(VISUAL_SPEED)
+        
+        # Final check: if we exited loop without dissolving
+        if self.t_dissolve is None and self.jam_occurred:
+            self.jam_perpetuo = True
         
         self.save_csv()
         
@@ -371,7 +318,7 @@ class SimuladorHomogeneo:
             "nombre": self.config["nombre"],
             "num_cars": self.config["num_cars"],
             "max_speed": self.config["max_speed"],
-            "density": round(self.num_cars / TRACK_LENGTH * 1000, 2),  # vehicles/km
+            "density": round(self.num_cars / TRACK_LENGTH * 1000, 2),
             "t_dissolve": self.t_dissolve if not self.jam_perpetuo else "NaN",
             "max_stopped": self.max_stopped,
             "jam_perpetuo": int(self.jam_perpetuo),
@@ -380,16 +327,11 @@ class SimuladorHomogeneo:
         return "NEXT", summary
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  MAIN EXECUTION
-# ═══════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     print("\n" + "=" * 70)
-    print("  HOMOGENEOUS TRAFFIC SIMULATION (Density × Speed)")
+    print("  HOMOGENEOUS TRAFFIC SIMULATION (ACTUALLY FIXED)")
     print("=" * 70)
     print(f"  Scenarios: {len(ESCENARIOS)}")
-    print(f"  Densities: {DENSITIES}")
-    print(f"  Speeds: {SPEEDS}")
     print(f"  Visualization: {'ENABLED' if ENABLE_VISUAL else 'DISABLED'}")
     print("=" * 70 + "\n")
     
@@ -407,9 +349,8 @@ if __name__ == "__main__":
             print("\n⛔  Interrupted")
             break
         
-        print(f"✓ T_dissolve={summary['t_dissolve']}s")
+        print(f"✓ T_dissolve={summary['t_dissolve']}s  Max_stopped={summary['max_stopped']}")
     
-    # Save master results
     if master_results:
         with open("resultados_homogeneo_master.csv", "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=master_results[0].keys())
@@ -420,4 +361,4 @@ if __name__ == "__main__":
     if ENABLE_VISUAL:
         pygame.quit()
     
-    print("\n✅  Simulation complete!\n")
+    print("\n✅  Complete!\n")
