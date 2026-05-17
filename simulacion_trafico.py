@@ -17,13 +17,18 @@ ESCENARIOS = [
 ]
 
 # --- PARÁMETROS FÍSICOS CONSTANTES ---
-NUM_CARS = 38
+NUM_CARS = 30
 TRACK_RADIUS = 400  
 TRACK_LENGTH = 2 * math.pi * TRACK_RADIUS
-T_REACCION = 1.5
-S0 = 5.0
-ACC_MAX = 1.2
-DEC_MAX = 2.0
+ENABLE_VISUAL = True                 # Set False for faster testing
+
+# === IDM PARAMETERS ===
+S0 = 2.5                            # minimum gap (m) - try: 3, 5, 7
+T_REACCION = 1                    # reaction time (s) - try: 1.0, 1.5, 2.0
+
+ACC_MAX = 2.5
+DEC_MAX = 4.5
+
 
 class SimuladorTFG:
     def __init__(self, config):

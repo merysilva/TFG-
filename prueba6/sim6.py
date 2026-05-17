@@ -1,10 +1,10 @@
 """
-simulador_heterogeneo_FIXED.py — Actually Fixed Heterogeneous Traffic
+simulador_heterogeneo_FINAL.py — ACTUALLY FIXED Heterogeneous Traffic
 ======================================================================
-CRITICAL FIX: Don't check for dissolution before disturbance ends!
+FIX: disturbance_end_time must start at a value AFTER disturbance ends!
 
 Usage:
-    python simulador_heterogeneo_FIXED.py
+    python simulador_heterogeneo_FINAL.py
 """
 
 import pygame
@@ -47,7 +47,6 @@ TRUCK_DEC_MAX = 3.0
 S0 = 2.5
 T_REACTION_BASE = 1.0
 
-# Driver personalities
 AGGRESSIVE_SPEED_FACTOR = 1.0
 AGGRESSIVE_GAP_FACTOR = 0.8
 CAUTIOUS_SPEED_FACTOR = 0.9
@@ -127,15 +126,15 @@ class SimuladorHeterogeneo:
         self.segundo_actual = 0
         self.frame_count = 0
         self.disturbance_active = False
-        self.disturbance_end_time = 0
+        # CRITICAL FIX: Initialize to when disturbance will end, not 0!
+        self.disturbance_end_time = DISTURBANCE_START + DISTURBANCE_DURATION
         
         # Metrics
         self.logs = []
         self.max_stopped = 0
         self.t_dissolve = None
         self.jam_perpetuo = False
-        self.stable_counter = 0
-        self.jam_occurred = False  # NEW: Track if a jam actually happened
+        self.consecutive_clear_seconds = 0
 
     def calculate_idm_acceleration(self, i):
         lead = (i + 1) % NUM_CARS
@@ -149,11 +148,9 @@ class SimuladorHeterogeneo:
         dec_max = self.dec_maxes[i]
         gap_factor = self.gap_factors[i]
         
-        # Free flow term (v^2 from working config)
         v_ratio = v / v_desired if v_desired > 0 else 0
         free_term = acc_max * (1.0 - v_ratio ** 2)
         
-        # Interaction term
         s_desired = S0 * gap_factor + max(0, v * T_REACTION_BASE + 
                                           (v * dv) / (2 * math.sqrt(acc_max * dec_max)))
         interaction = acc_max * (s_desired / gap) ** 2
@@ -173,7 +170,6 @@ class SimuladorHeterogeneo:
         for i in range(NUM_CARS):
             self.velocities[i] += self.accelerations[i] * DT
             
-            # Realistic stop
             if self.velocities[i] < 0.5 and self.accelerations[i] < 0:
                 self.velocities[i] = 0.0
             
@@ -196,10 +192,6 @@ class SimuladorHeterogeneo:
         if stopped > self.max_stopped:
             self.max_stopped = stopped
         
-        # Track if a jam occurred
-        if stopped > 0 and self.segundo_actual > DISTURBANCE_START:
-            self.jam_occurred = True
-        
         num_cars = self.vehicle_types.count("car")
         num_trucks = NUM_CARS - num_cars
         num_aggressive = self.personalities.count("aggressive")
@@ -220,15 +212,16 @@ class SimuladorHeterogeneo:
             gap = raw_gap - self.lengths[lead]
             gaps.append(gap)
         
-        # Determine state
         if self.segundo_actual < DISTURBANCE_START:
             estado = "WARMING_UP"
         elif self.disturbance_active:
             estado = "DISTURBANCE"
         elif stopped > 0:
             estado = "JAM_ACTIVE"
-        else:
+        elif self.segundo_actual > self.disturbance_end_time:
             estado = "RECOVERING"
+        else:
+            estado = "NORMAL"
         
         self.logs.append({
             "segundo": self.segundo_actual,
@@ -348,38 +341,30 @@ class SimuladorHeterogeneo:
                 # Disturbance control
                 if self.segundo_actual == DISTURBANCE_START:
                     self.disturbance_active = True
-                    self.disturbance_end_time = self.segundo_actual + DISTURBANCE_DURATION
                 
                 if self.segundo_actual == self.disturbance_end_time:
                     self.disturbance_active = False
                 
-                # ONLY check for dissolution AFTER disturbance has ended AND a jam occurred
-                if self.segundo_actual > self.disturbance_end_time and self.jam_occurred:
+                # Check for dissolution ONLY after disturbance has ended
+                if self.segundo_actual > self.disturbance_end_time:
                     stopped = sum(1 for v in self.velocities if v < 1.0)
                     
                     if stopped == 0:
-                        self.stable_counter += 1
+                        self.consecutive_clear_seconds += 1
+                        
+                        # 5 consecutive seconds with nobody stopped = dissolved
+                        if self.consecutive_clear_seconds >= 5 and self.t_dissolve is None:
+                            self.t_dissolve = self.segundo_actual - 5
+                            running = False
                     else:
-                        self.stable_counter = 0
-                    
-                    # Jam dissolved: 5 consecutive seconds with no stopped vehicles
-                    if self.stable_counter >= 5 and self.t_dissolve is None:
-                        self.t_dissolve = self.segundo_actual - 5
-                        running = False
-                
-                # Perpetual jam detection (ONLY after disturbance + some recovery time)
-                if self.segundo_actual > DISTURBANCE_START + 180:
-                    stopped = sum(1 for v in self.velocities if v < 1.0)
-                    if stopped > NUM_CARS * 0.10:
-                        self.jam_perpetuo = True
-                        running = False
+                        self.consecutive_clear_seconds = 0
             
             if self.enable_visual:
                 self.draw()
                 self.clock.tick(VISUAL_SPEED)
         
-        # Final check: if we exited loop without dissolving
-        if self.t_dissolve is None and self.jam_occurred:
+        # If we exited due to timeout and jam never dissolved
+        if self.t_dissolve is None and self.max_stopped > 0:
             self.jam_perpetuo = True
         
         self.save_csv()
@@ -398,7 +383,7 @@ class SimuladorHeterogeneo:
 
 if __name__ == "__main__":
     print("\n" + "=" * 70)
-    print("  HETEROGENEOUS TRAFFIC SIMULATION (ACTUALLY FIXED)")
+    print("  HETEROGENEOUS TRAFFIC SIMULATION (FINAL FIX)")
     print("=" * 70)
     print(f"  Scenarios: {len(ESCENARIOS)}")
     print(f"  Visualization: {'ENABLED' if ENABLE_VISUAL else 'DISABLED'}")

@@ -1,10 +1,12 @@
 """
-simulador_homogeneo_FIXED.py — Actually Fixed Homogeneous Traffic
-==================================================================
-CRITICAL FIX: Don't check for dissolution before disturbance ends!
+simulador_homogeneo_SIMPLE.py — Simple, Correct Homogeneous Traffic
+====================================================================
+Let the simulation run naturally. Exit when:
+1. Jam dissolves (5 seconds with nobody stopped), OR
+2. Timeout at MAX_TIME seconds
 
 Usage:
-    python simulador_homogeneo_FIXED.py
+    python simulador_homogeneo_SIMPLE.py
 """
 
 import pygame
@@ -29,7 +31,7 @@ for density in DENSITIES:
             "max_speed": speed
         })
 
-# Physical constants (from working tuning)
+# Physical constants
 TRACK_RADIUS = 400
 TRACK_LENGTH = 2 * math.pi * TRACK_RADIUS
 CAR_LENGTH = 5.0
@@ -81,9 +83,8 @@ class SimuladorHomogeneo:
         self.t_dissolve = None
         self.jam_perpetuo = False
         
-        # Tracking for dissolution detection
-        self.stable_counter = 0
-        self.jam_occurred = False  # NEW: Track if a jam actually happened
+        # Dissolution tracking
+        self.consecutive_clear_seconds = 0
 
     def calculate_idm_acceleration(self, i):
         lead = (i + 1) % self.num_cars
@@ -93,11 +94,9 @@ class SimuladorHomogeneo:
         v = self.velocities[i]
         dv = v - self.velocities[lead]
         
-        # Free flow term (v^2 from working config)
         v_ratio = v / self.max_speed if self.max_speed > 0 else 0
         free_term = CAR_ACC_MAX * (1.0 - v_ratio ** 2)
         
-        # Interaction term
         s_desired = S0 + max(0, v * T_REACTION + 
                             (v * dv) / (2 * math.sqrt(CAR_ACC_MAX * CAR_DEC_MAX)))
         interaction = CAR_ACC_MAX * (s_desired / gap) ** 2
@@ -108,15 +107,12 @@ class SimuladorHomogeneo:
         return accel
 
     def step_physics(self):
-        # Calculate accelerations
         for i in range(self.num_cars):
             self.accelerations[i] = self.calculate_idm_acceleration(i)
         
-        # Apply disturbance
         if self.disturbance_active:
             self.accelerations[0] = DISTURBANCE_DECEL
         
-        # Update velocities and positions
         for i in range(self.num_cars):
             self.velocities[i] += self.accelerations[i] * DT
             
@@ -139,15 +135,9 @@ class SimuladorHomogeneo:
         braking = sum(1 for a in self.accelerations if a < -1.0)
         accelerating = sum(1 for a in self.accelerations if a > 0.5)
         
-        # Track maximum stopped
         if stopped > self.max_stopped:
             self.max_stopped = stopped
         
-        # Track if a jam occurred
-        if stopped > 0 and self.segundo_actual > DISTURBANCE_START:
-            self.jam_occurred = True
-        
-        # Calculate gaps
         gaps = []
         for i in range(self.num_cars):
             lead = (i + 1) % self.num_cars
@@ -162,8 +152,10 @@ class SimuladorHomogeneo:
             estado = "DISTURBANCE"
         elif stopped > 0:
             estado = "JAM_ACTIVE"
-        else:
+        elif self.segundo_actual > self.disturbance_end_time:
             estado = "RECOVERING"
+        else:
+            estado = "NORMAL"
         
         self.logs.append({
             "segundo": self.segundo_actual,
@@ -283,33 +275,26 @@ class SimuladorHomogeneo:
                 if self.segundo_actual == self.disturbance_end_time:
                     self.disturbance_active = False
                 
-                # ONLY check for dissolution AFTER disturbance has ended AND a jam occurred
-                if self.segundo_actual > self.disturbance_end_time and self.jam_occurred:
+                # Check for dissolution ONLY after disturbance has ended
+                if self.segundo_actual > self.disturbance_end_time:
                     stopped = sum(1 for v in self.velocities if v < 1.0)
                     
                     if stopped == 0:
-                        self.stable_counter += 1
+                        self.consecutive_clear_seconds += 1
+                        
+                        # 5 consecutive seconds with nobody stopped = dissolved
+                        if self.consecutive_clear_seconds >= 5 and self.t_dissolve is None:
+                            self.t_dissolve = self.segundo_actual - 5
+                            running = False
                     else:
-                        self.stable_counter = 0
-                    
-                    # Jam dissolved: 5 consecutive seconds with no stopped vehicles
-                    if self.stable_counter >= 5 and self.t_dissolve is None:
-                        self.t_dissolve = self.segundo_actual - 5
-                        running = False
-                
-                # Perpetual jam detection (ONLY after disturbance + some recovery time)
-                if self.segundo_actual > DISTURBANCE_START + 180:
-                    stopped = sum(1 for v in self.velocities if v < 1.0)
-                    if stopped > self.num_cars * 0.10:
-                        self.jam_perpetuo = True
-                        running = False
+                        self.consecutive_clear_seconds = 0
             
             if self.enable_visual:
                 self.draw()
                 self.clock.tick(VISUAL_SPEED)
         
-        # Final check: if we exited loop without dissolving
-        if self.t_dissolve is None and self.jam_occurred:
+        # If we exited due to timeout and jam never dissolved
+        if self.t_dissolve is None and self.max_stopped > 0:
             self.jam_perpetuo = True
         
         self.save_csv()
@@ -329,7 +314,7 @@ class SimuladorHomogeneo:
 
 if __name__ == "__main__":
     print("\n" + "=" * 70)
-    print("  HOMOGENEOUS TRAFFIC SIMULATION (ACTUALLY FIXED)")
+    print("  HOMOGENEOUS TRAFFIC SIMULATION (SIMPLE & CORRECT)")
     print("=" * 70)
     print(f"  Scenarios: {len(ESCENARIOS)}")
     print(f"  Visualization: {'ENABLED' if ENABLE_VISUAL else 'DISABLED'}")

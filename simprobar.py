@@ -22,7 +22,7 @@ import os
 # === BASIC SETUP ===
 NUM_CARS = 27                        # Number of vehicles (try: 25, 30, 35, 40)
 TRACK_RADIUS = 400                   # meters (keep constant)
-ENABLE_VISUAL = False                 # Set False for faster testing
+ENABLE_VISUAL = True                 # Set False for faster testing
 
 # === VEHICLE PROPERTIES ===
 CAR_LENGTH = 5.0                     # meters

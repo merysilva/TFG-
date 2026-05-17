@@ -1,15 +1,19 @@
 """
-simulador_heterogeneo_v2.py — Improved Heterogeneous Traffic Flow Simulation
-=============================================================================
+simulador_heterogeneo_v2_FIXED.py — Improved Heterogeneous Traffic Flow Simulation
+===================================================================================
 Enhanced version with:
     - Realistic vehicle differentiation (trucks vs cars)
     - Binary driver personality (aggressive vs cautious)
     - Comprehensive data logging with wave propagation metrics
     - No permanent jams through calibrated parameters
     - Optional visualization (ENABLE_VISUAL flag)
+    - ✅ FIXED: Proper jam dissolution detection using velocity variance
+    - ✅ FIXED: Enhanced 6-state machine with bidirectional transitions
+    - ✅ FIXED: Realistic stop behavior
+    - ✅ FIXED: v_diff metric tracking
 
 Uso:
-    python simulador_heterogeneo_v2.py
+    python simulador_heterogeneo_v2_FIXED.py
 """
 
 import pygame
@@ -150,6 +154,7 @@ class SimuladorHeterogeneo:
         
         # ── Simulation state ──────────────────────────────────────
         self.estado = "ESTABILIZANDO"
+        self.sub_estado = None  # ✅ FIXED: Track recovery sub-phases
         self.segundo_actual = 0
         self.frame_count = 0
         self.timer_frenada = 0
@@ -199,127 +204,124 @@ class SimuladorHeterogeneo:
         # Interaction term with personalized gap acceptance
         s_desired = S0 * gap_factor + max(0, v * T_REACTION_BASE + 
                                           (v * dv) / (2 * math.sqrt(acc_max * dec_max)))
-        interaction = acc_max * (s_desired / gap) ** 2
+        
+        if gap > 0:
+            interaction = acc_max * (s_desired / gap) ** 2
+        else:
+            interaction = acc_max * 100  # Emergency brake
         
         accel = free_term - interaction
         
-        # Limit acceleration/deceleration to vehicle capabilities
+        # Limit to vehicle capabilities
         accel = max(-dec_max, min(acc_max, accel))
         
         return accel
 
     def step_physics(self):
         """Update all vehicle positions and velocities."""
+        # Calculate accelerations based on state
         if self.estado == "ESTABILIZANDO":
-            # Gentle acceleration to desired speed
+            # Gentle warm-up acceleration
             for i in range(NUM_CARS):
                 if self.velocities[i] < self.v_desired[i]:
                     self.accelerations[i] = self.acc_maxes[i] * 0.5
                 else:
                     self.accelerations[i] = 0.0
+        
+        elif self.estado == "FLUJO_SINCRO":
+            # Use IDM for synchronized flow
+            for i in range(NUM_CARS):
+                self.accelerations[i] = self.calculate_idm_acceleration(i)
+        
         else:
-            # IDM control
+            # Normal IDM control for all other states
             for i in range(NUM_CARS):
                 self.accelerations[i] = self.calculate_idm_acceleration(i)
         
         # Apply disturbance
-        if self.estado == "FRENANDO":
+        if self.estado == "FRENADA_ORIGEN":
             self.accelerations[0] = DISTURBANCE_DECEL
         
         # Update velocities and positions
         for i in range(NUM_CARS):
             self.velocities[i] += self.accelerations[i] * DT
+            
+            # ✅ FIXED: Realistic stop behavior
+            # If moving very slowly and still braking, force a complete stop
+            if self.velocities[i] < 0.5 and self.accelerations[i] < 0:
+                self.velocities[i] = 0.0
+                self.accelerations[i] = 0.0
+            
             self.velocities[i] = max(0.0, min(self.max_speeds[i], self.velocities[i]))
             self.positions[i] += self.velocities[i] * DT
             self.positions[i] %= TRACK_LENGTH
 
     def update_metrics(self):
-        """Calculate real-time safety and performance metrics."""
-        # Safety metrics
+        """Update various metrics for analysis."""
+        # Track throughput
+        for i in range(NUM_CARS):
+            if self.last_positions[i] > self.reference_point >= self.positions[i]:
+                self.vehicles_passed_total += 1
+        self.last_positions = self.positions.copy()
+        
+        # Calculate gaps and check for near collisions
         for i in range(NUM_CARS):
             lead = (i + 1) % NUM_CARS
             raw_gap = (self.positions[lead] - self.positions[i]) % TRACK_LENGTH
             gap = raw_gap - self.lengths[lead]
             
-            # Near collision: gap < 2m while moving
+            # Near collision: gap < 2m while moving > 2 m/s
             if gap < 2.0 and self.velocities[i] > 2.0:
                 self.near_collisions_count += 1
-            
-            # Hard braking event
-            if self.accelerations[i] < -4.0:
+        
+        # Hard braking events
+        for a in self.accelerations:
+            if a < -4.0:  # Hard brake threshold
                 self.hard_brakes_count += 1
         
         # Track maximum stopped vehicles
         stopped = sum(1 for v in self.velocities if v < 1.0)
         if stopped > self.max_stopped:
             self.max_stopped = stopped
-        
-        # Wave propagation tracking (find the jam front)
-        if self.estado in ["FRENANDO", "RECUPERANDO"]:
-            if self.wave_start_time is None and stopped > 5:
-                self.wave_start_time = self.segundo_actual
-            
-            if stopped > 5:
-                # Find the position of the jam (average position of stopped vehicles)
-                stopped_positions = [self.positions[i] for i in range(NUM_CARS) 
-                                    if self.velocities[i] < 1.0]
-                if stopped_positions:
-                    avg_jam_pos = sum(stopped_positions) / len(stopped_positions)
-                    self.wave_positions.append((self.segundo_actual, avg_jam_pos))
 
     def calculate_wave_speed(self):
-        """Calculate backward propagation speed of the jam wave."""
-        if len(self.wave_positions) < 2:
+        """Calculate the jam wave propagation speed."""
+        if not self.wave_positions or len(self.wave_positions) < 2:
             return None
         
-        # Take first and last measurements
-        t1, pos1 = self.wave_positions[0]
-        t2, pos2 = self.wave_positions[-1]
+        # Use first and last position to calculate average wave speed
+        time_diff = self.wave_positions[-1][0] - self.wave_positions[0][0]
+        if time_diff <= 0:
+            return None
         
-        # Calculate distance traveled (accounting for circular track)
-        distance = (pos1 - pos2) % TRACK_LENGTH  # Backward propagation
-        time_elapsed = t2 - t1
+        pos_diff = abs(self.wave_positions[-1][1] - self.wave_positions[0][1])
+        wave_speed = pos_diff / time_diff
         
-        if time_elapsed > 0:
-            return distance / time_elapsed  # m/s
-        return None
+        return wave_speed
 
-    def measure_throughput(self):
-        """Count vehicles that crossed reference point this second."""
-        crossed = 0
-        for i in range(NUM_CARS):
-            old_pos = self.last_positions[i]
-            new_pos = self.positions[i]
-            
-            # Check if vehicle crossed the reference point
-            if old_pos <= self.reference_point < new_pos:
-                crossed += 1
-            elif old_pos > new_pos:  # Wrapped around
-                if old_pos <= self.reference_point or new_pos >= self.reference_point:
-                    crossed += 1
-            
-            self.last_positions[i] = new_pos
+    def log_data(self):
+        """Record comprehensive statistics for this second."""
+        # Basic velocity statistics
+        avg_velocity = sum(self.velocities) / NUM_CARS
+        min_velocity = min(self.velocities)
+        max_velocity = max(self.velocities)
+        velocity_variance = np.var(self.velocities)
         
-        self.vehicles_passed_total += crossed
-        return crossed
-
-    def calculate_speed_variance_by_type(self):
-        """Calculate speed variance separately for cars and trucks."""
-        car_speeds = [self.velocities[i] for i in range(NUM_CARS) 
-                      if self.vehicle_types[i] == "car"]
-        truck_speeds = [self.velocities[i] for i in range(NUM_CARS) 
-                        if self.vehicle_types[i] == "truck"]
+        # ✅ FIXED: Add velocity variance metric (v_diff)
+        v_diff = max_velocity - min_velocity
         
-        car_variance = np.var(car_speeds) if car_speeds else 0
-        truck_variance = np.var(truck_speeds) if truck_speeds else 0
+        # Vehicle type statistics
+        car_velocities = [self.velocities[i] for i in range(NUM_CARS) 
+                         if self.vehicle_types[i] == "car"]
+        truck_velocities = [self.velocities[i] for i in range(NUM_CARS) 
+                           if self.vehicle_types[i] == "truck"]
         
-        car_mean = np.mean(car_speeds) if car_speeds else 0
-        truck_mean = np.mean(truck_speeds) if truck_speeds else 0
+        car_mean = sum(car_velocities) / len(car_velocities) if car_velocities else 0
+        truck_mean = sum(truck_velocities) / len(truck_velocities) if truck_velocities else 0
+        car_variance = np.var(car_velocities) if len(car_velocities) > 1 else 0
+        truck_variance = np.var(truck_velocities) if len(truck_velocities) > 1 else 0
         
-        return car_mean, car_variance, truck_mean, truck_variance
-
-    def calculate_gap_distribution(self):
-        """Calculate gap statistics for all vehicles."""
+        # Gap statistics
         gaps = []
         for i in range(NUM_CARS):
             lead = (i + 1) % NUM_CARS
@@ -327,110 +329,75 @@ class SimuladorHeterogeneo:
             gap = raw_gap - self.lengths[lead]
             gaps.append(gap)
         
-        return {
-            'min': min(gaps),
-            'max': max(gaps),
-            'mean': np.mean(gaps),
-            'std': np.std(gaps),
-            'median': np.median(gaps)
-        }
-
-    def log_data(self):
-        """Record comprehensive statistics for this second."""
-        # Basic velocity stats
-        avg_velocity = sum(self.velocities) / NUM_CARS
-        min_velocity = min(self.velocities)
-        max_velocity = max(self.velocities)
-        velocity_variance = np.var(self.velocities)
-        
-        # Throughput
-        throughput_this_second = self.measure_throughput()
+        avg_gap = sum(gaps) / len(gaps)
+        min_gap = min(gaps)
+        median_gap = sorted(gaps)[len(gaps) // 2]
         
         # Vehicle state counts
+        stopped = sum(1 for v in self.velocities if v < 1.0)
         cruising = sum(1 for i in range(NUM_CARS) 
                       if self.velocities[i] >= self.v_desired[i] - 1.0)
-        braking = sum(1 for i in range(NUM_CARS) if self.accelerations[i] < -1.0)
-        stopped = sum(1 for v in self.velocities if v < 1.0)
-        accelerating = sum(1 for i in range(NUM_CARS) if self.accelerations[i] > 0.5)
+        braking = sum(1 for a in self.accelerations if a < -1.0)
+        accelerating = sum(1 for a in self.accelerations if a > 0.5)
         
-        # Fleet composition
-        num_cars = self.vehicle_types.count("car")
-        num_trucks = NUM_CARS - num_cars
-        num_aggressive = self.personalities.count("aggressive")
-        num_cautious = NUM_CARS - num_aggressive
+        # Wave tracking
+        if self.estado in ["ONDA_ACTIVA", "DISOLVIENDO"]:
+            # Find the position of the jam front (first stopped vehicle)
+            for i in range(NUM_CARS):
+                if self.velocities[i] < 1.0:
+                    self.wave_positions.append((self.segundo_actual, self.positions[i]))
+                    break
         
-        # Gap distribution
-        gap_stats = self.calculate_gap_distribution()
-        
-        # Speed variance by type
-        car_mean, car_var, truck_mean, truck_var = self.calculate_speed_variance_by_type()
-        
-        # Acceleration stats
-        avg_accel = np.mean(self.accelerations)
-        max_accel = max(self.accelerations)
-        min_accel = min(self.accelerations)
-        
-        self.logs.append({
+        # Log everything
+        log_entry = {
             "segundo": self.segundo_actual,
-            "estado_sim": self.estado,
-            
-            # Fleet composition
-            "num_cars": num_cars,
-            "num_trucks": num_trucks,
-            "num_aggressive": num_aggressive,
-            "num_cautious": num_cautious,
+            "estado": self.estado,
+            "sub_estado": self.sub_estado if self.sub_estado else "",
             
             # Velocity metrics
-            "avg_velocity": round(avg_velocity, 3),
-            "min_velocity": round(min_velocity, 3),
-            "max_velocity": round(max_velocity, 3),
-            "velocity_variance": round(velocity_variance, 3),
+            "avg_velocity": round(avg_velocity, 2),
+            "min_velocity": round(min_velocity, 2),
+            "max_velocity": round(max_velocity, 2),
+            "velocity_variance": round(velocity_variance, 2),
+            "v_diff": round(v_diff, 2),  # ✅ FIXED: Added v_diff
             
-            # Velocity by vehicle type
-            "car_mean_velocity": round(car_mean, 3),
-            "car_velocity_variance": round(car_var, 3),
-            "truck_mean_velocity": round(truck_mean, 3),
-            "truck_velocity_variance": round(truck_var, 3),
+            # Type-specific metrics
+            "car_mean_velocity": round(car_mean, 2),
+            "truck_mean_velocity": round(truck_mean, 2),
+            "car_velocity_variance": round(car_variance, 2),
+            "truck_velocity_variance": round(truck_variance, 2),
             
-            # Throughput
-            "throughput_per_second": throughput_this_second,
-            "cumulative_throughput": self.vehicles_passed_total,
-            "throughput_per_min": throughput_this_second * 60,
+            # Gap metrics
+            "avg_gap": round(avg_gap, 2),
+            "min_gap": round(min_gap, 2),
+            "median_gap": round(median_gap, 2),
             
             # Vehicle states
+            "vehicles_stopped": stopped,
             "vehicles_cruising": cruising,
             "vehicles_braking": braking,
-            "vehicles_stopped": stopped,
             "vehicles_accelerating": accelerating,
             
-            # Gap distribution
-            "min_gap": round(gap_stats['min'], 2),
-            "max_gap": round(gap_stats['max'], 2),
-            "avg_gap": round(gap_stats['mean'], 2),
-            "std_gap": round(gap_stats['std'], 2),
-            "median_gap": round(gap_stats['median'], 2),
-            
-            # Safety
+            # Throughput and safety
+            "cumulative_throughput": self.vehicles_passed_total,
             "near_collisions": self.near_collisions_count,
             "hard_brakes": self.hard_brakes_count,
-            
-            # Acceleration
-            "avg_acceleration": round(avg_accel, 3),
-            "max_acceleration": round(max_accel, 3),
-            "min_acceleration": round(min_accel, 3),
-        })
+        }
+        
+        self.logs.append(log_entry)
 
     def get_vehicle_color(self, i):
-        """Calculate vehicle color based on acceleration state."""
+        """Calculate vehicle color based on acceleration."""
         accel = self.accelerations[i]
         
         # Normalize acceleration to [-1, 1]
-        norm_accel = max(-1.0, min(1.0, accel / 3.0))
+        max_accel = max(self.acc_maxes[i], self.dec_maxes[i])
+        norm_accel = max(-1.0, min(1.0, accel / max_accel))
         
         if norm_accel > 0:
             # Accelerating: yellow to green
             intensity = norm_accel
-            r = int(255 * (1 - intensity))
+            r = int(255 * (1 - intensity * 0.5))
             g = 255
             b = 0
         else:
@@ -454,15 +421,6 @@ class SimuladorHeterogeneo:
         pygame.draw.circle(self.screen, (50, 50, 50), (center_x, center_y), 
                           TRACK_RADIUS, 30)
         
-        # Reference line for throughput measurement
-        ref_angle = (self.reference_point / TRACK_LENGTH) * 2 * math.pi
-        ref_x1 = center_x + (TRACK_RADIUS - 50) * math.cos(ref_angle)
-        ref_y1 = center_y + (TRACK_RADIUS - 50) * math.sin(ref_angle)
-        ref_x2 = center_x + (TRACK_RADIUS + 50) * math.cos(ref_angle)
-        ref_y2 = center_y + (TRACK_RADIUS + 50) * math.sin(ref_angle)
-        pygame.draw.line(self.screen, (100, 255, 100), 
-                        (int(ref_x1), int(ref_y1)), (int(ref_x2), int(ref_y2)), 2)
-        
         # Draw vehicles
         for i in range(NUM_CARS):
             angle = (self.positions[i] / TRACK_LENGTH) * 2 * math.pi
@@ -472,10 +430,10 @@ class SimuladorHeterogeneo:
             color = self.get_vehicle_color(i)
             
             # Size based on vehicle type
-            if self.vehicle_types[i] == "car":
-                radius = 8
-            else:  # truck
+            if self.vehicle_types[i] == "truck":
                 radius = 13
+            else:
+                radius = 8
             
             # White outline for disturbance source
             if i == 0:
@@ -487,7 +445,15 @@ class SimuladorHeterogeneo:
         # Statistics panel
         avg_vel = sum(self.velocities) / NUM_CARS
         stopped = sum(1 for v in self.velocities if v < 1.0)
-        car_mean, _, truck_mean, _ = self.calculate_speed_variance_by_type()
+        
+        car_velocities = [self.velocities[i] for i in range(NUM_CARS) 
+                         if self.vehicle_types[i] == "car"]
+        truck_velocities = [self.velocities[i] for i in range(NUM_CARS) 
+                           if self.vehicle_types[i] == "truck"]
+        car_mean = sum(car_velocities) / len(car_velocities) if car_velocities else 0
+        truck_mean = sum(truck_velocities) / len(truck_velocities) if truck_velocities else 0
+        
+        v_diff = max(self.velocities) - min(self.velocities)
         
         info = [
             f"SCENARIO: {self.config['nombre']}",
@@ -495,6 +461,7 @@ class SimuladorHeterogeneo:
             f"Aggressive: {int(self.config['aggressive_pct']*100)}%",
             "",
             f"TIME: {self.segundo_actual}s   STATE: {self.estado}",
+            f"Sub-state: {self.sub_estado or 'N/A'}",
             "",
             "=== FLEET ===",
             f"Cars:       {self.vehicle_types.count('car')}  "
@@ -508,6 +475,7 @@ class SimuladorHeterogeneo:
             f"Avg velocity:  {avg_vel:.2f} m/s",
             f"Min velocity:  {min(self.velocities):.2f} m/s",
             f"Max velocity:  {max(self.velocities):.2f} m/s",
+            f"v_diff:        {v_diff:.2f} m/s",
             "",
             "=== THROUGHPUT ===",
             f"Total passed:  {self.vehicles_passed_total}",
@@ -566,7 +534,7 @@ class SimuladorHeterogeneo:
         print(f"  ✅  {filename}")
 
     def run(self):
-        """Main simulation loop."""
+        """Main simulation loop with improved state machine."""
         running = True
         
         while running and self.segundo_actual < MAX_TIME:
@@ -576,15 +544,65 @@ class SimuladorHeterogeneo:
                     if event.type == pygame.QUIT:
                         return "QUIT"
             
-            # State transitions
-            if self.estado == "ESTABILIZANDO" and self.segundo_actual >= DISTURBANCE_START:
-                self.estado = "FRENANDO"
-                self.timer_frenada = DISTURBANCE_DURATION
+            # ✅ FIXED: Enhanced state machine transitions
+            v_min = min(self.velocities)
+            v_max = max(self.velocities)
+            v_diff = v_max - v_min
             
-            if self.estado == "FRENANDO":
+            # 1. ESTABILIZANDO -> FLUJO_SINCRO
+            if self.estado == "ESTABILIZANDO":
+                if v_diff < 1.0 and self.segundo_actual > 5:
+                    self.estado = "FLUJO_SINCRO"
+                    if not self.enable_visual:
+                        print(f"  [{self.segundo_actual}s] 🟢 Stable synchronized flow achieved")
+            
+            # 2. FLUJO_SINCRO -> FRENADA_ORIGEN
+            if self.estado == "FLUJO_SINCRO" and self.segundo_actual >= DISTURBANCE_START:
+                self.estado = "FRENADA_ORIGEN"
+                self.timer_frenada = DISTURBANCE_DURATION
+                if not self.enable_visual:
+                    print(f"  [{self.segundo_actual}s] 🚨 Disturbance started")
+            
+            # 3. FRENADA_ORIGEN -> ONDA_ACTIVA
+            if self.estado == "FRENADA_ORIGEN":
                 self.timer_frenada -= DT
                 if self.timer_frenada <= 0:
-                    self.estado = "RECUPERANDO"
+                    self.estado = "ONDA_ACTIVA"
+                    self.sub_estado = "PROPAGATING"
+                    if not self.enable_visual:
+                        print(f"  [{self.segundo_actual}s] 💥 Jam wave propagating")
+            
+            # 4. ONDA_ACTIVA <-> DISOLVIENDO (bidirectional!)
+            if self.estado in ["ONDA_ACTIVA", "DISOLVIENDO"]:
+                if v_min < 1.0:
+                    if self.estado == "DISOLVIENDO":
+                        if not self.enable_visual:
+                            print(f"  [{self.segundo_actual}s] ⚠️  Jam wave re-formed")
+                    self.estado = "ONDA_ACTIVA"
+                    self.sub_estado = "PROPAGATING"
+                elif v_min >= 1.0:
+                    if self.estado == "ONDA_ACTIVA":
+                        if not self.enable_visual:
+                            print(f"  [{self.segundo_actual}s] 📉 Queue cleared, dissolving...")
+                    self.estado = "DISOLVIENDO"
+                    self.sub_estado = "RECOVERING"
+            
+            # 5. DISOLVIENDO -> RECUPERADO (jam dissolved!)
+            if self.estado == "DISOLVIENDO" and v_diff < 2.0:
+                if self.t_dissolve is None:
+                    self.t_dissolve = self.segundo_actual
+                    self.wave_speed = self.calculate_wave_speed()
+                    self.estado = "RECUPERADO"
+                    self.sub_estado = "COMPLETE"
+                    self.timer_fin = 5
+                    if not self.enable_visual:
+                        print(f"  [{self.segundo_actual}s] ✅ JAM DISSOLVED! (v_diff={v_diff:.2f} m/s)")
+            
+            # Wait before finishing
+            if self.estado == "RECUPERADO":
+                self.timer_fin -= DT
+                if self.timer_fin <= 0:
+                    running = False
             
             # Physics update
             self.step_physics()
@@ -597,27 +615,12 @@ class SimuladorHeterogeneo:
                 self.log_data()
                 self.frame_count = 0
                 
-                # Check for jam dissolution
-                if self.estado == "RECUPERANDO":
-                    all_at_target = all(self.velocities[i] >= self.v_desired[i] - 1.0 
-                                       for i in range(NUM_CARS))
-                    if all_at_target and self.t_dissolve is None:
-                        self.t_dissolve = self.segundo_actual
-                        self.wave_speed = self.calculate_wave_speed()
-                        self.estado = "FIN_ESPERA"
-                        self.timer_fin = 5
-                
-                # Wait before finishing
-                if self.estado == "FIN_ESPERA":
-                    self.timer_fin -= 1
-                    if self.timer_fin <= 0:
-                        running = False
-                
                 # Perpetual jam detection (after 200 seconds)
-                if self.segundo_actual > 200 and self.estado == "RECUPERANDO":
+                if self.segundo_actual > 200 and self.estado in ["ONDA_ACTIVA", "DISOLVIENDO"]:
                     stopped = sum(1 for v in self.velocities if v < 1.0)
-                    if stopped > NUM_CARS * 0.3:  # More than 30% still stopped
-                        print(f"  ⚠️  Perpetual jam detected")
+                    if stopped > NUM_CARS * 0.2:  # More than 20% still stopped
+                        if not self.enable_visual:
+                            print(f"  [{self.segundo_actual}s] ❌ PERPETUAL JAM DETECTED!")
                         self.jam_perpetuo = True
                         running = False
             
@@ -651,12 +654,17 @@ class SimuladorHeterogeneo:
 # ═══════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     print("\n" + "=" * 70)
-    print("  HETEROGENEOUS TRAFFIC SIMULATION V2")
+    print("  HETEROGENEOUS TRAFFIC SIMULATION V2 - FIXED VERSION")
     print("=" * 70)
     print(f"  Scenarios: {len(ESCENARIOS)}")
     print(f"  Vehicles: {NUM_CARS}")
     print(f"  Track: {TRACK_LENGTH:.0f} m")
     print(f"  Visualization: {'ENABLED' if ENABLE_VISUAL else 'DISABLED'}")
+    print("  ✅ FIXES APPLIED:")
+    print("     - Velocity variance (v_diff) tracking")
+    print("     - Enhanced 6-state machine with bidirectional transitions")
+    print("     - Realistic stop behavior (v < 0.5 -> full stop)")
+    print("     - Proper jam dissolution detection")
     print("=" * 70 + "\n")
     
     master_results = []

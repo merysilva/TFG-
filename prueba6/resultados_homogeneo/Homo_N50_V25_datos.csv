@@ -1,0 +1,6 @@
+segundo,estado,num_cars,max_speed,avg_velocity,min_velocity,max_velocity,v_diff,vehicles_cruising,vehicles_braking,vehicles_stopped,vehicles_accelerating,min_gap,avg_gap,max_gap
+1,WARMING_UP,50,25.0,2.48,2.48,2.48,0.0,0,0,0,50,45.27,45.27,45.27
+2,WARMING_UP,50,25.0,4.88,4.88,4.88,0.0,0,0,0,50,45.27,45.27,45.27
+3,WARMING_UP,50,25.0,7.15,7.15,7.15,0.0,0,0,0,50,45.27,45.27,45.27
+4,WARMING_UP,50,25.0,9.25,9.25,9.25,0.0,0,0,0,50,45.27,45.27,45.27
+5,WARMING_UP,50,25.0,11.14,11.14,11.14,0.0,0,0,0,50,45.27,45.27,45.27
