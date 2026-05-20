@@ -1,0 +1,8 @@
+scenario,num_cars,max_speed,type,recovery_time,max_stopped,max_in_jam,total_energy
+Safe_N40_V20_S4_T15,40,20,Conservative,83.0,1,7,133.1
+HighSpeed_N35_V30_D15,35,30,High Speed,32.0,1,2,116.7
+DEBUG_Dense_N45_V25_D18,45,25,Debug,214.0,2,17,561.6
+Base_N35_V25_D12,35,25,Baseline,61.0,1,4,169.7
+DEBUG_VeryDense_N50_V25_D15,50,25,Debug,,2,50,878.5
+Base_N40_V25_D12,40,25,Baseline,89.0,1,6,252.8
+VISUAL_Demo_N40_V25_D15,40,25,Demo,143.0,2,9,4051.1
