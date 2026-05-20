@@ -1,15 +1,16 @@
 """
-simulador_enhanced.py — Advanced Traffic Jam Simulator (v2)
-============================================================
-Enhanced version with:
-- Start at cruise speed (realistic initial conditions)
-- 4-state system: PARADO, ACELERANDO, DECELERANDO, CONSTANTE
-- Advanced metrics: flow, density, wave propagation, efficiency
-- Full parameter tunability with batch execution
-- Clean console output
+sim.py — Traffic Jam Simulator
+================================
+Realistic traffic simulation with gap-based state classification.
+
+Vehicle states based on spacing (not acceleration):
+- ATASCO: Following too close (gap < critical distance)
+- LIBRE: Normal following distance
+- PARADO: Not moving (v < threshold)
+- (Acceleration is implicit in the state transitions)
 
 Usage:
-    python simulador_enhanced.py
+    python sim.py
 """
 
 import pygame
@@ -159,8 +160,7 @@ ESCENARIOS = [
     }
 ]
 
-
-# ═══════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════
 #  CONSTANT PARAMETERS
 # ═══════════════════════════════════════════════════════════════════════════
 TRACK_RADIUS = 400                  # meters
@@ -171,24 +171,39 @@ MAX_TIME = 300                     # maximum simulation time (seconds)
 # Calculate track length
 TRACK_LENGTH = 2 * math.pi * TRACK_RADIUS
 
-# State classification thresholds
-ACCEL_THRESHOLD = 0.5              # m/s² - above this = accelerating
-DECEL_THRESHOLD = -0.5             # m/s² - below this = decelerating
+# ═══════════════════════════════════════════════════════════════════════════
+#  STATE CLASSIFICATION - GAP-BASED THRESHOLDS
+# ═══════════════════════════════════════════════════════════════════════════
+# These are the key parameters that define traffic states
 STOPPED_THRESHOLD = 0.5            # m/s - below this = stopped
 
+# Gap thresholds are velocity-dependent:
+# Critical gap = minimum safe distance at current speed
+# Formula: gap_critical = S0 + T * v
+# Where:
+#   S0 = minimum bumper-to-bumper distance (jam spacing)
+#   T = time headway (seconds of following distance)
+#   v = current velocity
+
+GAP_MULTIPLIER_ATASCO = 1.5        # gap < 1.5 * critical = ATASCO (too close!)
+GAP_MULTIPLIER_LIBRE = 2.5         # gap > 2.5 * critical = LIBRE (comfortable)
+# Between 1.5x and 2.5x critical = AJUSTANDO (adjusting spacing)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  ENHANCED SIMULATOR CLASS
+#  SIMULATOR CLASS
 # ═══════════════════════════════════════════════════════════════════════════
-class SimuladorEnhanced:
+class TrafficSimulator:
     """
-    Advanced traffic simulator with realistic initial conditions and comprehensive metrics.
+    Traffic simulator with gap-based state classification.
     
-    4 States (based on acceleration):
-    - PARADO: v < 0.5 m/s
-    - ACELERANDO: a > 0.5 m/s²
-    - DECELERANDO: a < -0.5 m/s²
-    - CONSTANTE: -0.5 <= a <= 0.5 m/s²
+    States are determined by spacing to leader:
+    - PARADO: Not moving (v < 0.5 m/s)
+    - ATASCO: Following too close (gap < 1.5 × critical_gap)
+    - AJUSTANDO: Adjusting spacing (1.5× < gap < 2.5× critical_gap)
+    - LIBRE: Comfortable spacing (gap > 2.5 × critical_gap)
+    
+    Where critical_gap = S0 + T_reaction × velocity
     """
     
     def __init__(self, config):
@@ -208,8 +223,7 @@ class SimuladorEnhanced:
         self.enable_visual = config['enable_visual']
         
         # Calculate equilibrium speed and spacing
-        # IDM equilibrium: vehicles maintain steady speed with safe gaps
-        self.equilibrium_speed = self.car_max_speed * 0.85  # Start at ~85% of max
+        self.equilibrium_speed = self.car_max_speed * 0.85
         self.equilibrium_gap = TRACK_LENGTH / self.num_cars
         
         # Initialize pygame if visualization enabled
@@ -220,15 +234,16 @@ class SimuladorEnhanced:
             self.clock = pygame.time.Clock()
             self.font = pygame.font.SysFont("Consolas", 14)
         
-        # Vehicle state arrays - START AT EQUILIBRIUM SPEED
+        # Vehicle state arrays - START AT EQUILIBRIUM
         spacing = TRACK_LENGTH / self.num_cars
         self.positions = [i * spacing for i in range(self.num_cars)]
-        self.velocities = [self.equilibrium_speed] * self.num_cars  # All start at equilibrium
+        self.velocities = [self.equilibrium_speed] * self.num_cars
         self.accelerations = [0.0] * self.num_cars
-        self.car_states = ["CONSTANTE"] * self.num_cars
+        self.car_states = ["LIBRE"] * self.num_cars
+        self.gaps = [spacing - CAR_LENGTH] * self.num_cars  # Track gaps explicitly
         
         # Simulation state
-        self.estado = "EQUILIBRIO"  # Start in equilibrium, not stabilizing
+        self.estado = "EQUILIBRIO"
         self.segundo_actual = 0
         self.frame_count = 0
         self.timer_frenada = 0
@@ -237,6 +252,7 @@ class SimuladorEnhanced:
         # Metrics tracking
         self.logs = []
         self.max_stopped = 0
+        self.max_en_atasco = 0
         self.max_v_diff = 0
         self.t_dissolve = None
         self.jam_perpetuo = False
@@ -244,7 +260,6 @@ class SimuladorEnhanced:
         # Wave propagation tracking
         self.disturbance_initiated = False
         self.wave_front_car = None
-        self.wave_propagation_speed = 0
         
         # Energy and efficiency tracking
         self.total_energy_dissipated = 0
@@ -252,13 +267,54 @@ class SimuladorEnhanced:
         
         print(f"▶ {config['nombre']}: N={self.num_cars}, V={self.car_max_speed}m/s, S0={self.s0}m, Dist={self.disturbance_decel}m/s²")
 
+    def calculate_critical_gap(self, velocity):
+        """
+        Calculate the critical gap for a given velocity.
+        
+        Critical gap = minimum safe following distance at this speed
+        Formula: S0 + T_reaction × velocity
+        
+        This represents the distance needed to:
+        - Maintain minimum spacing (S0) when stopped
+        - React and brake safely (T_reaction × v) at speed
+        """
+        return self.s0 + self.t_reaction * velocity
+
+    def classify_car_state(self, i):
+        """
+        Classify car state based on gap to leader.
+        
+        The key insight: traffic jams are about SPACING, not speed.
+        A car can be going fast but still be "in a jam" if following too close.
+        """
+        v = self.velocities[i]
+        gap = self.gaps[i]
+        
+        # First check if stopped
+        if v < STOPPED_THRESHOLD:
+            return "PARADO"
+        
+        # Calculate what the gap SHOULD be at this speed
+        critical_gap = self.calculate_critical_gap(v)
+        
+        # Classify based on actual gap vs. critical gap
+        if gap < GAP_MULTIPLIER_ATASCO * critical_gap:
+            # Following too close - this IS a jam condition
+            # Even if moving at decent speed!
+            return "ATASCO"
+        elif gap > GAP_MULTIPLIER_LIBRE * critical_gap:
+            # Plenty of space - free flow
+            return "LIBRE"
+        else:
+            # In between - adjusting spacing
+            return "AJUSTANDO"
+
     def calculate_idm_acceleration(self, i):
         """Calculate IDM acceleration for vehicle i."""
         lead = (i + 1) % self.num_cars
         
-        # Calculate gap to leader
-        raw_gap = (self.positions[lead] - self.positions[i]) % TRACK_LENGTH
-        gap = max(0.1, raw_gap - CAR_LENGTH)
+        # Use pre-calculated gap
+        gap = max(0.1, self.gaps[i])
         
         v = self.velocities[i]
         dv = v - self.velocities[lead]
@@ -279,20 +335,6 @@ class SimuladorEnhanced:
         
         return accel
 
-    def classify_car_state(self, i):
-        """Classify car state based on velocity and acceleration (4 states)."""
-        v = self.velocities[i]
-        a = self.accelerations[i]
-        
-        if v < STOPPED_THRESHOLD:
-            return "PARADO"
-        elif a > ACCEL_THRESHOLD:
-            return "ACELERANDO"
-        elif a < DECEL_THRESHOLD:
-            return "DECELERANDO"
-        else:
-            return "CONSTANTE"
-
     def calculate_advanced_metrics(self):
         """Calculate flow, density, efficiency, and wave metrics."""
         # Basic stats
@@ -302,44 +344,45 @@ class SimuladorEnhanced:
         v_diff = max_velocity - min_velocity
         
         # Density (vehicles per km)
-        density = (self.num_cars / TRACK_LENGTH) * 1000  # veh/km
+        density = (self.num_cars / TRACK_LENGTH) * 1000
         
-        # Flow (vehicles per hour passing a point)
-        flow = density * avg_velocity * 3600 / 1000  # veh/hour
+        # Flow (vehicles per hour)
+        flow = density * avg_velocity * 3600 / 1000
         
-        # Efficiency (actual speed / target speed)
+        # Efficiency
         efficiency = (avg_velocity / self.equilibrium_speed) * 100 if self.equilibrium_speed > 0 else 0
         
-        # Time loss (seconds lost per vehicle compared to equilibrium)
+        # Time loss
         if self.equilibrium_speed > 0:
             ideal_distance = self.equilibrium_speed * DT
             actual_distance = avg_velocity * DT
             time_loss_per_car = (ideal_distance - actual_distance) / self.equilibrium_speed if actual_distance < ideal_distance else 0
             self.cumulative_time_loss += time_loss_per_car * self.num_cars
         
-        # Energy dissipation (sum of braking energy)
+        # Energy dissipation
         energy_this_step = sum(abs(min(0, a)) * v * DT for a, v in zip(self.accelerations, self.velocities))
         self.total_energy_dissipated += energy_this_step
         
-        # Gap statistics
-        gaps = []
-        for i in range(self.num_cars):
-            lead = (i + 1) % self.num_cars
-            raw_gap = (self.positions[lead] - self.positions[i]) % TRACK_LENGTH
-            gap = raw_gap - CAR_LENGTH
-            gaps.append(gap)
+        # Gap statistics (already calculated)
+        min_gap = min(self.gaps)
+        avg_gap = sum(self.gaps) / len(self.gaps)
+        max_gap = max(self.gaps)
         
-        # Wave propagation speed (if disturbance active)
+        # Average critical gap (what gaps SHOULD be)
+        avg_critical_gap = sum(self.calculate_critical_gap(v) for v in self.velocities) / self.num_cars
+        
+        # Gap pressure: how much gaps are compressed below critical
+        gap_pressure = avg_critical_gap / avg_gap if avg_gap > 0 else 0
+        
+        # Wave speed
         wave_speed_kmh = 0
         if self.estado in ["FRENADA_ORIGEN", "ONDA_ACTIVA", "DISOLVIENDO"]:
-            # Find the rearmost stopped/slow vehicle
             slow_cars = [i for i, v in enumerate(self.velocities) if v < self.equilibrium_speed * 0.5]
             if slow_cars and self.wave_front_car is not None:
-                # Wave travels backward (opposite to traffic direction)
                 wave_distance = (self.positions[self.wave_front_car] - self.positions[slow_cars[-1]]) % TRACK_LENGTH
                 time_elapsed = self.segundo_actual - self.disturbance_start
                 if time_elapsed > 0:
-                    wave_speed_kmh = -(wave_distance / time_elapsed) * 3.6  # negative = backward, km/h
+                    wave_speed_kmh = -(wave_distance / time_elapsed) * 3.6
         
         return {
             'avg_velocity': avg_velocity,
@@ -349,7 +392,9 @@ class SimuladorEnhanced:
             'density': density,
             'flow': flow,
             'efficiency': efficiency,
-            'gaps': gaps,
+            'gaps': self.gaps,
+            'avg_critical_gap': avg_critical_gap,
+            'gap_pressure': gap_pressure,
             'energy_dissipated': self.total_energy_dissipated,
             'time_loss': self.cumulative_time_loss,
             'wave_speed_kmh': wave_speed_kmh
@@ -362,7 +407,7 @@ class SimuladorEnhanced:
         for i in range(self.num_cars):
             self.accelerations[i] = self.calculate_idm_acceleration(i)
         
-        # Apply disturbance to lead vehicle
+        # Apply disturbance
         if self.estado == "FRENADA_ORIGEN":
             self.accelerations[0] = self.disturbance_decel
             if not self.disturbance_initiated:
@@ -373,7 +418,7 @@ class SimuladorEnhanced:
         for i in range(self.num_cars):
             self.velocities[i] += self.accelerations[i] * DT
             
-            # Realistic stop: force dead stop when crawling and braking
+            # Realistic stop
             if self.velocities[i] < STOPPED_THRESHOLD and self.accelerations[i] < 0:
                 self.velocities[i] = 0.0
             
@@ -383,8 +428,15 @@ class SimuladorEnhanced:
             # Update position
             self.positions[i] += self.velocities[i] * DT
             self.positions[i] %= TRACK_LENGTH
-            
-            # Classify state
+        
+        # Calculate gaps AFTER all positions updated
+        for i in range(self.num_cars):
+            lead = (i + 1) % self.num_cars
+            raw_gap = (self.positions[lead] - self.positions[i]) % TRACK_LENGTH
+            self.gaps[i] = raw_gap - CAR_LENGTH
+        
+        # Classify states AFTER gaps calculated
+        for i in range(self.num_cars):
             self.car_states[i] = self.classify_car_state(i)
 
     def log_data(self):
@@ -394,14 +446,19 @@ class SimuladorEnhanced:
         # State counts
         state_counts = {
             "PARADO": self.car_states.count("PARADO"),
-            "ACELERANDO": self.car_states.count("ACELERANDO"),
-            "DECELERANDO": self.car_states.count("DECELERANDO"),
-            "CONSTANTE": self.car_states.count("CONSTANTE")
+            "ATASCO": self.car_states.count("ATASCO"),
+            "AJUSTANDO": self.car_states.count("AJUSTANDO"),
+            "LIBRE": self.car_states.count("LIBRE")
         }
         
         stopped = state_counts["PARADO"]
+        en_atasco = state_counts["ATASCO"]
+        
         if stopped > self.max_stopped:
             self.max_stopped = stopped
+        
+        if en_atasco > self.max_en_atasco:
+            self.max_en_atasco = en_atasco
         
         if metrics['v_diff'] > self.max_v_diff:
             self.max_v_diff = metrics['v_diff']
@@ -422,16 +479,18 @@ class SimuladorEnhanced:
             "flujo_veh_h": round(metrics['flow'], 0),
             "eficiencia_pct": round(metrics['efficiency'], 1),
             
-            # Vehicle states (4 states)
+            # Vehicle states (GAP-BASED!)
             "coches_parados": state_counts["PARADO"],
-            "coches_acelerando": state_counts["ACELERANDO"],
-            "coches_decelerando": state_counts["DECELERANDO"],
-            "coches_constante": state_counts["CONSTANTE"],
+            "coches_atasco": state_counts["ATASCO"],
+            "coches_ajustando": state_counts["AJUSTANDO"],
+            "coches_libre": state_counts["LIBRE"],
             
             # Gap metrics
             "gap_min": round(min(metrics['gaps']), 2),
             "gap_medio": round(sum(metrics['gaps']) / len(metrics['gaps']), 2),
             "gap_max": round(max(metrics['gaps']), 2),
+            "gap_critico_medio": round(metrics['avg_critical_gap'], 2),
+            "presion_gaps": round(metrics['gap_pressure'], 2),
             
             # Advanced metrics
             "energia_disipada_acum": round(metrics['energy_dissipated'], 1),
@@ -440,16 +499,17 @@ class SimuladorEnhanced:
             
             # Cumulative extremes
             "max_parados": self.max_stopped,
+            "max_en_atasco": self.max_en_atasco,
             "max_v_diff": round(self.max_v_diff, 2)
         })
 
     def get_state_color(self, state):
-        """Get color for 4-state visualization."""
+        """Get color for gap-based states."""
         colors = {
-            "PARADO": (200, 0, 0),        # Red
-            "DECELERANDO": (255, 165, 0),  # Orange
-            "CONSTANTE": (100, 200, 100),  # Green
-            "ACELERANDO": (50, 150, 255),  # Blue
+            "PARADO": (200, 0, 0),        # Red - stopped
+            "ATASCO": (255, 140, 0),      # Orange - too close (jam!)
+            "AJUSTANDO": (255, 255, 100), # Yellow - adjusting
+            "LIBRE": (100, 200, 100),     # Green - comfortable spacing
         }
         return colors.get(state, (255, 255, 255))
 
@@ -482,7 +542,7 @@ class SimuladorEnhanced:
         
         # Statistics panel
         metrics = self.calculate_advanced_metrics()
-        state_counts = {s: self.car_states.count(s) for s in ["PARADO", "ACELERANDO", "DECELERANDO", "CONSTANTE"]}
+        state_counts = {s: self.car_states.count(s) for s in ["PARADO", "ATASCO", "AJUSTANDO", "LIBRE"]}
         
         info = [
             f"=== {self.config['nombre']} ===",
@@ -492,8 +552,11 @@ class SimuladorEnhanced:
             f"V-diff: {metrics['v_diff']:.1f} m/s | Efficiency: {metrics['efficiency']:.0f}%",
             f"Density: {metrics['density']:.1f} veh/km | Flow: {metrics['flow']:.0f} veh/h",
             "",
-            f"🔴 Parados: {state_counts['PARADO']} | 🟠 Frenando: {state_counts['DECELERANDO']}",
-            f"🟢 Constante: {state_counts['CONSTANTE']} | 🔵 Acelerando: {state_counts['ACELERANDO']}",
+            f"Gap avg: {metrics['gaps'] and sum(metrics['gaps'])/len(metrics['gaps']):.1f}m | Critical: {metrics['avg_critical_gap']:.1f}m",
+            f"Gap pressure: {metrics['gap_pressure']:.2f}× (>1.0 = compressed)",
+            "",
+            f"🔴 Parados: {state_counts['PARADO']} | 🟠 Atasco: {state_counts['ATASCO']}",
+            f"🟡 Ajustando: {state_counts['AJUSTANDO']} | 🟢 Libre: {state_counts['LIBRE']}",
             "",
             f"Energy lost: {metrics['energy_dissipated']:.0f} | Time lost: {metrics['time_loss']:.0f}s",
             f"Wave speed: {metrics['wave_speed_kmh']:.1f} km/h",
@@ -512,10 +575,10 @@ class SimuladorEnhanced:
         
         # Legend
         legend_items = [
-            ((200, 0, 0), "Parado"),
-            ((255, 165, 0), "Decelerando"),
-            ((100, 200, 100), "Constante"),
-            ((50, 150, 255), "Acelerando"),
+            ((200, 0, 0), "Parado (v<0.5)"),
+            ((255, 140, 0), "Atasco (gap<1.5×crit)"),
+            ((255, 255, 100), "Ajustando (gap 1.5-2.5×)"),
+            ((100, 200, 100), "Libre (gap>2.5×crit)"),
         ]
         
         for i, (color, label) in enumerate(legend_items):
@@ -528,8 +591,8 @@ class SimuladorEnhanced:
 
     def save_csv(self):
         """Save CSV data."""
-        os.makedirs("resultados_enhanced", exist_ok=True)
-        filename = f"resultados_enhanced/{self.config['nombre']}_data.csv"
+        os.makedirs("resultados", exist_ok=True)
+        filename = f"resultados/{self.config['nombre']}_data.csv"
         
         if not self.logs:
             return
@@ -553,8 +616,9 @@ class SimuladorEnhanced:
             # Calculate metrics
             v_min = min(self.velocities)
             v_diff = max(self.velocities) - v_min
+            en_atasco = self.car_states.count("ATASCO")
             
-            # State transitions (simplified)
+            # State transitions
             if self.estado == "EQUILIBRIO" and self.segundo_actual >= self.disturbance_start:
                 self.estado = "FRENADA_ORIGEN"
                 self.timer_frenada = self.disturbance_duration
@@ -571,7 +635,8 @@ class SimuladorEnhanced:
             if self.estado == "DISOLVIENDO":
                 if v_min < 1.0:
                     self.estado = "ONDA_ACTIVA"
-                elif v_diff < 2.0:
+                # Recovery: both v_diff small AND few cars in jam state
+                elif v_diff < 2.0 and en_atasco < self.num_cars * 0.1:
                     if self.t_dissolve is None:
                         self.estado = "RECUPERADO"
                         self.t_dissolve = self.segundo_actual
@@ -608,9 +673,9 @@ class SimuladorEnhanced:
         self.save_csv()
         
         if self.t_dissolve:
-            print(f"   ✅ Dissolved at t={self.t_dissolve}s | Max stopped: {self.max_stopped}")
+            print(f"   ✅ t={self.t_dissolve}s | Max parados: {self.max_stopped} | Max atasco: {self.max_en_atasco}")
         elif self.jam_perpetuo:
-            print(f"   ❌ Perpetual jam | Max stopped: {self.max_stopped}")
+            print(f"   ❌ Perpetual | Max parados: {self.max_stopped} | Max atasco: {self.max_en_atasco}")
         else:
             print(f"   ⏱️  Timeout at {self.segundo_actual}s")
         
@@ -622,7 +687,8 @@ class SimuladorEnhanced:
 # ═══════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     print("\n" + "╔" + "═" * 78 + "╗")
-    print("║" + " " * 22 + "TRAFFIC JAM SIMULATOR v2" + " " * 32 + "║")
+    print("║" + " " * 24 + "TRAFFIC JAM SIMULATOR" + " " * 33 + "║")
+    print("║" + " " * 26 + "Gap-Based States" + " " * 36 + "║")
     print("╚" + "═" * 78 + "╝")
     print(f"\n📊 Running {len(ESCENARIOS)} scenarios...\n")
     
@@ -630,7 +696,7 @@ if __name__ == "__main__":
     
     for i, config in enumerate(ESCENARIOS, 1):
         print(f"[{i}/{len(ESCENARIOS)}] ", end="")
-        sim = SimuladorEnhanced(config)
+        sim = TrafficSimulator(config)
         result = sim.run()
         
         if result == "QUIT":
@@ -641,5 +707,5 @@ if __name__ == "__main__":
     
     print("\n" + "═" * 80)
     print(f"  ✅ All simulations complete! ({elapsed:.1f}s)")
-    print(f"  📁 Results: resultados_enhanced/")
+    print(f"  📁 Results: resultados/")
     print("═" * 80 + "\n")
