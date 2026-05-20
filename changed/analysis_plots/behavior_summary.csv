@@ -1,0 +1,5 @@
+behavior,avg_max_stopped,avg_recovery_time,avg_energy,scenarios
+High Speed,1.0,1.0,266.1,2
+Conservative,1.0,1.0,45.7,2
+Baseline,1.0,1.0,124.26666666666665,3
+Extreme,1.5,1.0,193.9,2

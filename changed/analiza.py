@@ -57,7 +57,6 @@ def load_all_scenarios():
     
     return scenarios
 
-
 def extract_parameters(scenario_name):
     """Extract parameters from scenario name."""
     # Example: Base_N25_V25_D10 or HighSpeed_N30_V30_D12
@@ -66,15 +65,30 @@ def extract_parameters(scenario_name):
     
     for part in parts:
         if part.startswith('N'):
-            params['num_cars'] = int(part[1:])
+            try:
+                params['num_cars'] = int(part[1:])
+            except ValueError:
+                pass
         elif part.startswith('V'):
-            params['max_speed'] = int(part[1:])
+            try:
+                params['max_speed'] = int(part[1:])
+            except ValueError:
+                pass
         elif part.startswith('D'):
-            params['disturbance'] = int(part[1:])
+            try:
+                params['disturbance'] = int(part[1:])
+            except ValueError:
+                pass
         elif part.startswith('S'):
-            params['s0'] = float(part[1:])
+            try:
+                params['s0'] = float(part[1:])
+            except ValueError:
+                pass  # This perfectly catches and ignores "Safe"
         elif part.startswith('T'):
-            params['t_reaction'] = float(part[1:])
+            try:
+                params['t_reaction'] = float(part[1:])
+            except ValueError:
+                pass
     
     # Extract scenario type
     if 'Base' in scenario_name:
