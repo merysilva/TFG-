@@ -117,6 +117,9 @@ def debug_scenario(df, scenario_name, params):
             print(f"\n❌ No recovery (eff = {df['eficiencia_pct'].iloc[-1]:.1f}% at end)")
     
     print(f"{'='*70}\n")
+
+
+def load_all_scenarios():
     """Load all CSV files from resultados directory."""
     csv_files = list(Path(DATA_DIR).glob("*_data.csv"))
     
@@ -1045,7 +1048,6 @@ def plot_correlation_analysis(scenarios):
         print(f"     num_cars ↔ max_in_jam: {corr.loc['num_cars', 'max_in_jam']:.2f}")
     if 's0' in corr.columns and 'max_speed' in corr.columns:
         print(f"     s0 ↔ max_speed: {corr.loc['s0', 'max_speed']:.2f}")
-
 
 
 # ═══════════════════════════════════════════════════════════════════
