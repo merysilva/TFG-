@@ -142,20 +142,26 @@ def load_all_scenarios():
 
 def extract_parameters(scenario_name):
     """Extract parameters from scenario name."""
-    # Example: Base_N25_V25_D10 or HighSpeed_N30_V30_D12
+    # Example: Base_N25_V25_D10 or Safe_N25_V20_S4_T15
     parts = scenario_name.split('_')
     params = {}
     
     for part in parts:
-        if part.startswith('N'):
+        # Check if it's a parameter (letter followed by digits/decimal)
+        if len(part) < 2:
+            continue
+            
+        if part.startswith('N') and part[1:].replace('.','').isdigit():
             params['num_cars'] = int(part[1:])
-        elif part.startswith('V'):
+        elif part.startswith('V') and part[1:].replace('.','').isdigit():
             params['max_speed'] = int(part[1:])
-        elif part.startswith('D'):
+        elif part.startswith('D') and part[1:].replace('.','').replace('-','').isdigit():
             params['disturbance'] = int(part[1:])
-        elif part.startswith('S'):
+        elif part.startswith('S') and part[1:].replace('.','').isdigit():
+            # S followed by number = s0 parameter (e.g., S4 = s0=4.0)
             params['s0'] = float(part[1:])
-        elif part.startswith('T'):
+        elif part.startswith('T') and part[1:].replace('.','').isdigit():
+            # T followed by number = t_reaction parameter (e.g., T15 = t_reaction=1.5)
             params['t_reaction'] = float(part[1:])
     
     # Extract scenario type
@@ -167,6 +173,8 @@ def extract_parameters(scenario_name):
         params['type'] = 'Conservative'
     elif 'Extreme' in scenario_name:
         params['type'] = 'Extreme'
+    elif 'DEBUG' in scenario_name:
+        params['type'] = 'Debug'
     elif 'VISUAL' in scenario_name:
         params['type'] = 'Demo'
     else:
