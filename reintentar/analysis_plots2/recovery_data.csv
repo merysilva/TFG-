@@ -1,0 +1,15 @@
+scenario,num_cars,max_speed,type,recovery_time,max_stopped,max_in_jam,total_energy
+Disturbance_D12,30,0,Other,89.0,1,6,252.8
+Density_N45,45,0,Other,122.0,1,8,372.6
+Density_N40,40,0,Other,89.0,1,6,252.8
+Density_N25,25,0,Other,37.0,1,2,85.5
+Disturbance_D10,30,0,Other,86.0,1,5,246.1
+Density_N35,35,0,Other,61.0,1,4,169.7
+Behavior_Aggressive,30,0,Other,58.0,1,4,233.5
+Disturbance_D08,30,0,Other,82.0,1,5,227.3
+Density_N30,30,0,Other,46.0,1,3,120.1
+Disturbance_D15,30,0,Other,92.0,1,6,263.1
+Density_N50,50,0,Other,254.0,1,8,303.8
+Behavior_Conservative,30,0,Other,,1,19,391.4
+Behavior_Normal,30,0,Other,89.0,1,6,252.8
+Disturbance_D18,30,0,Other,94.0,1,6,269.5

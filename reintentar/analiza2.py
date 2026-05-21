@@ -31,7 +31,7 @@ plt.rcParams['font.size'] = 11
 plt.rcParams['axes.titlesize'] = 13
 plt.rcParams['axes.labelsize'] = 12
 
-OUTPUT_DIR = "analysis_plots"
+OUTPUT_DIR = "analysis_plots2"
 DATA_DIR = "resultados"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)

@@ -1,0 +1,15 @@
+Scenario,Type,Density (N),Max Speed,Max Stopped,Max in Jam,Recovery Time (s),Avg Velocity During Jam,Total Energy Lost (J),Total Time Lost (s)
+Disturbance_D12,Other,30,0,1,6,89.0,21.908181818181816,252.8,0.0
+Density_N45,Other,45,0,1,8,122.0,21.452727272727273,372.6,0.0
+Density_N40,Other,40,0,1,6,89.0,21.908181818181816,252.8,0.0
+Density_N25,Other,25,0,1,2,37.0,23.00454545454545,85.5,0.0
+Disturbance_D10,Other,30,0,1,5,86.0,21.973636363636366,246.1,0.0
+Density_N35,Other,35,0,1,4,61.0,22.37909090909091,169.7,0.0
+Behavior_Aggressive,Other,30,0,1,4,58.0,22.305454545454545,233.5,0.0
+Disturbance_D08,Other,30,0,1,5,82.0,22.08636363636364,227.3,0.0
+Density_N30,Other,30,0,1,3,46.0,22.728181818181817,120.1,0.0
+Disturbance_D15,Other,30,0,1,6,92.0,21.849090909090908,263.1,0.0
+Density_N50,Other,50,0,1,8,254.0,21.520000000000003,303.8,0.0
+Behavior_Conservative,Other,30,0,1,19,,20.400000000000002,391.4,3.1
+Behavior_Normal,Other,30,0,1,6,89.0,21.908181818181816,252.8,0.0
+Disturbance_D18,Other,30,0,1,6,94.0,21.80727272727273,269.5,0.0
