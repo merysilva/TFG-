@@ -129,45 +129,45 @@ ESCENARIOS = [
     # ========================================================================
     # STUDY 2: BEHAVIOR OPTIMIZATION (3 scenarios)
     # Variables: s0 and t_reaction combinations
-    # Fixed: N=40, V=25, disturbance=-12 m/s²
+    # Fixed: N=30, V=25, disturbance=-12 m/s²
     # Answers: "Which behavior minimizes stop-and-go?"
     # ========================================================================
     {
         "nombre": "Behavior_Aggressive",
-        "num_cars": 40,
+        "num_cars": 30,
         "car_max_speed": 25.0,
         "car_acc_max": 2.5,
         "car_dec_max": 4.5,
         "s0": 2.0,           # Tight following
         "t_reaction": 0.8,   # Quick reactions
         "disturbance_start": 10.0,
-        "disturbance_duration": 5.0,
+        "disturbance_duration": 10.0,
         "disturbance_decel": -12.0,
         "enable_visual": False
     },
     {
         "nombre": "Behavior_Normal",
-        "num_cars": 40,
+        "num_cars": 30,
         "car_max_speed": 25.0,
         "car_acc_max": 2.5,
         "car_dec_max": 4.5,
         "s0": 2.5,           # Standard gap
         "t_reaction": 1.0,   # Standard reaction
         "disturbance_start": 10.0,
-        "disturbance_duration": 5.0,
+        "disturbance_duration": 10.0,
         "disturbance_decel": -12.0,
         "enable_visual": False
     },
     {
         "nombre": "Behavior_Conservative",
-        "num_cars": 40,
+        "num_cars": 30,
         "car_max_speed": 25.0,
         "car_acc_max": 2.5,
         "car_dec_max": 4.5,
         "s0": 4.0,           # Large safe gaps
         "t_reaction": 1.5,   # Cautious reactions
         "disturbance_start": 10.0,
-        "disturbance_duration": 5.0,
+        "disturbance_duration": 10.0,
         "disturbance_decel": -12.0,
         "enable_visual": False
     },
@@ -175,70 +175,70 @@ ESCENARIOS = [
     # ========================================================================
     # STUDY 3: DISTURBANCE SENSITIVITY (5 scenarios)
     # Variables: disturbance_decel only
-    # Fixed: N=40, V=25, s0=2.5, T=1.0
+    # Fixed: N=30, V=25, s0=2.5, T=1.0
     # ========================================================================
     {
         "nombre": "Disturbance_D08",
-        "num_cars": 40,
+        "num_cars": 30,
         "car_max_speed": 25.0,
         "car_acc_max": 2.5,
         "car_dec_max": 4.5,
         "s0": 2.5,
         "t_reaction": 1.0,
         "disturbance_start": 10.0,
-        "disturbance_duration": 5.0,
+        "disturbance_duration": 10.0,
         "disturbance_decel": -8.0,   # Mild brake
         "enable_visual": False
     },
     {
         "nombre": "Disturbance_D10",
-        "num_cars": 40,
+        "num_cars": 30,
         "car_max_speed": 25.0,
         "car_acc_max": 2.5,
         "car_dec_max": 4.5,
         "s0": 2.5,
         "t_reaction": 1.0,
         "disturbance_start": 10.0,
-        "disturbance_duration": 5.0,
+        "disturbance_duration": 10.0,
         "disturbance_decel": -10.0,
         "enable_visual": False
     },
     {
         "nombre": "Disturbance_D12",
-        "num_cars": 40,
+        "num_cars": 30,
         "car_max_speed": 25.0,
         "car_acc_max": 2.5,
         "car_dec_max": 4.5,
         "s0": 2.5,
         "t_reaction": 1.0,
         "disturbance_start": 10.0,
-        "disturbance_duration": 5.0,
+        "disturbance_duration": 10.0,
         "disturbance_decel": -12.0,  # Standard brake
         "enable_visual": False
     },
     {
         "nombre": "Disturbance_D15",
-        "num_cars": 40,
+        "num_cars": 30,
         "car_max_speed": 25.0,
         "car_acc_max": 2.5,
         "car_dec_max": 4.5,
         "s0": 2.5,
         "t_reaction": 1.0,
         "disturbance_start": 10.0,
-        "disturbance_duration": 5.0,
+        "disturbance_duration": 10.0,
         "disturbance_decel": -15.0,  # Hard brake
         "enable_visual": False
     },
     {
         "nombre": "Disturbance_D18",
-        "num_cars": 40,
+        "num_cars": 30,
         "car_max_speed": 25.0,
         "car_acc_max": 2.5,
         "car_dec_max": 4.5,
         "s0": 2.5,
         "t_reaction": 1.0,
         "disturbance_start": 10.0,
-        "disturbance_duration": 5.0,
+        "disturbance_duration": 10.0,
         "disturbance_decel": -18.0,  # Very hard brake
         "enable_visual": False
     },
@@ -250,7 +250,7 @@ ESCENARIOS = [
 # ═════════════════════════════════════════════════════════════════════════
 #  CONSTANT PARAMETERS
 # ═══════════════════════════════════════════════════════════════════════════
-TRACK_RADIUS = 400                  # meters
+TRACK_RADIUS = 300                  # meters
 CAR_LENGTH = 5.0                    # meters
 DT = 0.1                           # simulation timestep (seconds)
 MAX_TIME = 300                     # maximum simulation time (seconds)
