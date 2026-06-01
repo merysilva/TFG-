@@ -125,16 +125,19 @@ def extract_metrics(df, scenario_name):
         'avg_velocity_before': df[df['segundo'] < 10]['vel_media'].mean(),
         'avg_velocity_during': df[(df['segundo'] >= 12) & (df['segundo'] <= 20)]['vel_media'].mean(),
         'velocity_drop': 0,  # Will calculate
-        'total_energy': df['energia_disipada_acum'].max(),
+        'total_energy': df['energia_disipada_acum'].max() / len(df),
+        #'total_energy': df['energia_disipada_acum'].max(),
         'total_time_lost': df['tiempo_perdido_acum'].max(),
         'min_efficiency': df['eficiencia_pct'].min(),
         'flow_before': df[df['segundo'] < 10]['flujo_veh_h'].mean(),
-        'flow_during': df[(df['segundo'] >= 12) & (df['segundo'] <= 20)]['flujo_veh_h'].mean(),
+        'flow_during': df[(df['segundo'] >= 10) & (df['segundo'] <= 60)]['flujo_veh_h'].min(),
+        #'flow_during': df[(df['segundo'] >= 12) & (df['segundo'] <= 20)]['flujo_veh_h'].mean(),
         'flow_drop_pct': 0,  # Will calculate
     }
     
     # Calculate derived metrics
-    metrics['velocity_drop'] = metrics['avg_velocity_before'] - metrics['avg_velocity_during']
+    # metrics['velocity_drop'] = metrics['avg_velocity_before'] - metrics['avg_velocity_during']
+    metrics['velocity_drop'] = metrics['avg_velocity_before'] - df['vel_media'].min()
     if metrics['flow_before'] > 0:
         metrics['flow_drop_pct'] = 100 * (metrics['flow_before'] - metrics['flow_during']) / metrics['flow_before']
     

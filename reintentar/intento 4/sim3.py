@@ -262,7 +262,7 @@ TRACK_LENGTH = 2 * math.pi * TRACK_RADIUS
 #  STATE CLASSIFICATION - GAP-BASED THRESHOLDS
 # ═══════════════════════════════════════════════════════════════════════════
 # These are the key parameters that define traffic states
-STOPPED_THRESHOLD = 1.0            # m/s - below this = stopped (was 0.5, too strict!)
+STOPPED_THRESHOLD = 0.3            # m/s - below this = stopped (was 0.5, too strict!)
 
 # Gap thresholds are velocity-dependent:
 # Critical gap = minimum safe distance at current speed
